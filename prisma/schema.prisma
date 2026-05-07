@@ -1,0 +1,482 @@
+// =============================================================================
+// AQUAMY — Agricultural and Aquatic Muirungi Youth Self-Help Group
+// schema.prisma — Reconciled v3 (@@map lines commented out for initial sync)
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") 
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum Role {
+  ADMIN
+  CHAIRPERSON
+  VICE_CHAIRPERSON
+  SECRETARY
+  TREASURER
+  CREDIT_COMMITTEE_MEMBER
+  LOAN_OFFICER
+  AUDITOR
+  MEMBER
+}
+
+enum MemberStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  EXPELLED
+  DECEASED
+  RESIGNED
+}
+
+enum ContributionType {
+  REGISTRATION_FEE
+  MAINTENANCE_FEE
+  MONTHLY
+  LATE_PENALTY
+  ARREAR_PAYMENT
+}
+
+enum LoanStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  DISBURSED
+  REPAYING
+  FULLY_REPAID
+  REJECTED
+  DEFAULTED
+  WRITTEN_OFF
+}
+
+enum LoanRepaymentStatus {
+  PENDING
+  PAID
+  MISSED
+  PARTIALLY_PAID
+}
+
+enum MeetingType {
+  ORDINARY
+  AGM
+  SPECIAL
+  CREDIT_COMMITTEE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT_WITH_APOLOGY
+  ABSENT_WITHOUT_APOLOGY
+}
+
+enum FineStatus {
+  OUTSTANDING
+  PAID
+  WAIVED
+}
+
+enum ShareTransactionType {
+  PURCHASE
+  BONUS
+  TRANSFER
+  REDEMPTION
+  ADJUSTMENT
+}
+
+// =============================================================================
+// MODELS
+// =============================================================================
+
+model SystemConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedBy   String
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  // @@map("system_config")
+}
+
+model LoanPolicy {
+  id                    String   @id @default(cuid())
+  interestRate          Float
+  interestMethod        String   @default("FLAT")
+  maxDuration           Int
+  minDuration           Int      @default(1)
+  minimumLoanAmount     Float    @default(0)
+  maximumLoanAmount     Float    @default(100000)
+  minimumMonthsAsMember Int      @default(3)
+  requiredGuarantors    Int      @default(2)
+  active                Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedBy             String?
+
+  loans                 Loan[]
+
+  // @@map("loan_policies")
+}
+
+model User {
+  id            String       @id @default(cuid())
+  memberNumber  String       @unique
+  name          String
+  firstName     String       @default("")
+  lastName      String       @default("")
+  email         String?      @unique
+  phone         String       @unique
+  dateOfBirth   DateTime
+  password      String
+  role          Role         @default(MEMBER)
+  status        MemberStatus @default(PENDING)
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+
+  contributions     Contribution[]
+  shares            Share?
+  shareTransactions ShareTransaction[]
+  loans             Loan[]
+  fines             Fine[]
+  attendances       AttendanceRecord[]
+  votes             LoanCommitteeVote[]
+  guaranteedLoans   LoanGuarantor[]
+  financialSummary  MemberFinancialSummary?
+  mpesaTransactions MpesaTransaction[]
+  notifications     Notification[]
+  inviteCode        InviteCode?
+
+  @@index([status])
+  @@index([role])
+  // @@map("users")
+}
+
+model InviteCode {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  usedBy   User?   @relation(fields: [usedById], references: [id])
+  usedById String? @unique
+
+  // @@map("invite_codes")
+}
+
+model Share {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id])
+  quantity    Int      @default(0)
+  totalValue  Float    @default(0.0)
+  updatedAt   DateTime @updatedAt
+
+  transactions ShareTransaction[]
+
+  // @@map("shares")
+}
+
+model ShareTransaction {
+  id           String               @id @default(cuid())
+  userId       String
+  user         User                 @relation(fields: [userId], references: [id])
+  shareId      String
+  share        Share                @relation(fields: [shareId], references: [id])
+  type         ShareTransactionType
+  units        Int
+  pricePerUnit Float
+  totalAmount  Float
+  notes        String?
+  recordedBy   String
+
+  mpesaTransaction   MpesaTransaction? @relation(fields: [mpesaTransactionId], references: [id])
+  mpesaTransactionId String?           @unique
+  createdAt          DateTime          @default(now())
+
+  @@index([userId])
+  // @@map("share_transactions")
+}
+
+model Contribution {
+  id             String           @id @default(cuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id])
+  amount         Float
+  expectedAmount Float            @default(0)
+  paidAmount     Float            @default(0)
+  type           ContributionType
+  status         String           @default("PENDING")
+  periodMonth    Int?
+  periodYear     Int?
+  arrearsMonths  Int              @default(0)
+  latePenalty    Float            @default(0.0)
+  dueDate        DateTime?
+  paidAt         DateTime?
+  mpesaReceiptId String?          @unique
+  recordedBy     String?
+
+  mpesaTransaction   MpesaTransaction? @relation(fields: [mpesaTransactionId], references: [id])
+  mpesaTransactionId String?           @unique
+  createdAt          DateTime          @default(now())
+
+  @@index([userId])
+  @@index([type, status])
+  @@index([periodYear, periodMonth])
+  // @@map("contributions")
+}
+
+model Loan {
+  id                String      @id @default(cuid())
+  userId            String
+  user              User        @relation(fields: [userId], references: [id])
+  loanPolicyId      String?
+  loanPolicy        LoanPolicy? @relation(fields: [loanPolicyId], references: [id])
+  principal         Float
+  interestRate      Float
+  termMonths        Int         @default(12)
+  totalRepayable    Float       @default(0)
+  outstandingBalance Float      @default(0)
+  monthlyInstalment Float       @default(0)
+  purpose           String      @default("")
+  status            LoanStatus  @default(DRAFT)
+  rejectionReason   String?
+  createdAt         DateTime    @default(now())
+  approvedAt        DateTime?
+  disbursedAt       DateTime?
+  fullyRepaidAt     DateTime?
+
+  votes             LoanCommitteeVote[]
+  repayments        LoanRepayment[]
+  guarantors        LoanGuarantor[]
+
+  disbursementTransaction   MpesaTransaction? @relation("LoanDisbursement", fields: [disbursementTxId], references: [id])
+  disbursementTxId          String?           @unique
+
+  @@index([userId])
+  @@index([status])
+  // @@map("loans")
+}
+
+model LoanRepayment {
+  id                 String              @id @default(cuid())
+  loanId             String
+  loan               Loan                @relation(fields: [loanId], references: [id])
+  instalmentNumber   Int
+  dueDate            DateTime
+  expectedAmount     Float
+  paidAmount         Float               @default(0)
+  status             LoanRepaymentStatus @default(PENDING)
+  paidAt             DateTime?
+
+  mpesaTransaction   MpesaTransaction? @relation(fields: [mpesaTransactionId], references: [id])
+  mpesaTransactionId String?           @unique
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([loanId])
+  @@index([status, dueDate])
+  // @@map("loan_repayments")
+}
+
+model LoanGuarantor {
+  id           String    @id @default(cuid())
+  loanId       String
+  loan         Loan      @relation(fields: [loanId], references: [id])
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+  hasConsented Boolean   @default(false)
+  consentedAt  DateTime?
+
+  @@unique([loanId, userId])
+  // @@map("loan_guarantors")
+}
+
+model LoanCommitteeVote {
+  id        String   @id @default(cuid())
+  loanId    String
+  loan      Loan     @relation(fields: [loanId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  decision  Boolean
+  comments  String?
+  createdAt DateTime @default(now())
+
+  @@unique([loanId, userId])
+  // @@map("loan_committee_votes")
+}
+
+model Meeting {
+  id          String            @id @default(cuid())
+  title       String
+  date        DateTime
+  type        MeetingType
+  venue       String?
+  quorumMet   Boolean           @default(false)
+  minutesUrl  String?
+  attendances AttendanceRecord[]
+
+  @@index([date])
+  // @@map("meetings")
+}
+
+model AttendanceRecord {
+  id          String           @id @default(cuid())
+  meetingId   String
+  meeting     Meeting          @relation(fields: [meetingId], references: [id])
+  userId      String
+  user        User             @relation(fields: [userId], references: [id])
+  status      AttendanceStatus
+  checkedInAt DateTime?
+  apologyNote String?
+  fine        Fine?
+
+  @@unique([meetingId, userId])
+  // @@map("attendance_records")
+}
+
+model Fine {
+  id                 String     @id @default(cuid())
+  userId             String
+  user               User       @relation(fields: [userId], references: [id])
+  attendanceRecordId String?    @unique
+  attendanceRecord   AttendanceRecord? @relation(fields: [attendanceRecordId], references: [id])
+  amount             Float
+  reason             String
+  isPaid             Boolean    @default(false)
+  status             FineStatus @default(OUTSTANDING)
+  issuedAt           DateTime   @default(now())
+  paidAt             DateTime?
+  waivedBy           String?
+  waivedAt           DateTime?
+  waiverReason       String?
+
+  mpesaTransaction   MpesaTransaction? @relation(fields: [mpesaTransactionId], references: [id])
+  mpesaTransactionId String?           @unique
+
+  @@index([userId])
+  @@index([status])
+  // @@map("fines")
+}
+
+model MpesaTransaction {
+  id                String   @id @default(cuid())
+  userId            String   @default("")
+  user              User     @relation(fields: [userId], references: [id])
+  checkoutRequestId String   @unique
+  merchantRequestId String   @unique
+  amount            Float
+  phoneNumber       String
+  receiptNumber     String?  @unique
+  status            String   @default("INITIATED")
+  callbackPayload   Json?
+  createdAt         DateTime @default(now())
+  completedAt       DateTime?
+
+  contribution      Contribution?
+  loanRepayment     LoanRepayment?
+  fine              Fine?
+  shareTransaction  ShareTransaction?
+  disbursedLoan     Loan?             @relation("LoanDisbursement")
+
+  @@index([userId])
+  @@index([status])
+  // @@map("mpesa_transactions")
+}
+
+model MemberFinancialSummary {
+  id                     String   @id @default(cuid())
+  userId                 String   @unique
+  user                   User     @relation(fields: [userId], references: [id])
+  totalContributed       Float    @default(0)
+  totalSharesValue       Float    @default(0)
+  totalPenaltiesPaid     Float    @default(0)
+  totalFinesPaid         Float    @default(0)
+  outstandingArrears     Float    @default(0)
+  outstandingFines       Float    @default(0)
+  outstandingLoanBalance Float    @default(0)
+  totalLoansRepaid       Float    @default(0)
+  lastUpdated            DateTime @updatedAt
+
+  // @@map("member_financial_summaries")
+}
+
+model GroupLedgerEntry {
+  id           String   @id @default(cuid())
+  description  String
+  entryType    String
+  amount       Float
+  isCredit     Boolean
+  balanceAfter Float
+  recordedBy   String
+  recordedAt   DateTime @default(now())
+
+  @@index([recordedAt])
+  @@index([entryType])
+  // @@map("group_ledger_entries")
+}
+
+model FinancialPeriod {
+  id                    String    @id @default(cuid())
+  year                  Int       @unique
+  openingBalance        Float
+  totalContributions    Float     @default(0)
+  totalSharePurchases   Float     @default(0)
+  totalFinesCollected   Float     @default(0)
+  totalLoansIssued      Float     @default(0)
+  totalLoanRepaymentsIn Float     @default(0)
+  totalExpenditure      Float     @default(0)
+  closingBalance        Float     @default(0)
+  isClosed              Boolean   @default(false)
+  closedBy              String?
+  closedAt              DateTime?
+  auditedBy             String?
+  auditedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // @@map("financial_periods")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  action     String
+  entityType String
+  entityId   String
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  // @@map("audit_logs")
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  channel   String
+  subject   String?
+  body      String
+  sentAt    DateTime?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  // @@map("notifications")
+}
