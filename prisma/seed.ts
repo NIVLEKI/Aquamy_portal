@@ -42,7 +42,7 @@ async function main() {
         minDuration:           1,
         minimumLoanAmount:     1000,
         maximumLoanAmount:     50000,
-        minimumMonthsAsMember: 3,
+        minimumMonthsAsMember: 0.0003,
         requiredGuarantors:    2,
         active:                true,
         updatedBy:             "SEED",
