@@ -7,15 +7,10 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { revalidatePath } from "next/cache";
 import { LoanStatus } from "@prisma/client";
 
-// ── Decode declined status from notes field ──────────────────────────────────
-// We avoid a schema migration by encoding decline in the existing `notes` field.
-// DECLINED guarantors: hasConsented = false, notes = "DECLINED", consentedAt = set
-// ACCEPTED guarantors: hasConsented = true,  consentedAt = set
-// PENDING  guarantors: hasConsented = false, consentedAt = null
-export const DECLINED_FLAG = "DECLINED";
-
 // =============================================================================
-// GET PENDING GUARANTOR REQUESTS  (for the logged-in user's guarantor page)
+// GET PENDING GUARANTOR REQUESTS
+// Returns loans where the current user is listed as a guarantor
+// and has not yet responded (neither consented nor declined).
 // =============================================================================
 
 export async function getPendingGuarantorRequests() {
@@ -23,71 +18,90 @@ export async function getPendingGuarantorRequests() {
   if (!session?.user?.email) return [];
 
   const dbUser = await prisma.user.findUnique({
-    where: { email: session.user.email }, select: { id: true },
+    where:  { email: session.user.email },
+    select: { id: true },
   });
   if (!dbUser) return [];
 
   return prisma.loanGuarantor.findMany({
     where: {
-      userId:       dbUser.id,
+      userId:      dbUser.id,
       hasConsented: false,
-      notes:        { not: DECLINED_FLAG }, // not yet declined
-      consentedAt:  null,                   // not yet responded at all
+      declined:     false,
+      loan: {
+        status: {
+          in: [LoanStatus.SUBMITTED, LoanStatus.UNDER_REVIEW],
+        },
+      },
     },
     include: {
       loan: {
         include: {
           user: {
-            select: { name: true, firstName: true, lastName: true, memberNumber: true, phone: true },
+            select: {
+              name:         true,
+              firstName:    true,
+              lastName:     true,
+              memberNumber: true,
+              phone:        true,
+            },
           },
-          loanPolicy: { select: { interestRate: true, interestMethod: true } },
         },
       },
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: { loan: { createdAt: "asc" } },
   });
 }
 
 // =============================================================================
 // ACCEPT GUARANTOR REQUEST
-// Shows a liability warning on the UI — the server records the acceptance.
+// Marks the guarantor as consented.
+// If ALL guarantors on the loan have now consented, automatically
+// advances the loan from SUBMITTED → UNDER_REVIEW for the committee.
 // =============================================================================
 
-export async function acceptGuarantorRequest(loanId: string) {
+export async function acceptGuarantorRequest(loanGuarantorId: string) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error("Not authenticated.");
 
   const dbUser = await prisma.user.findUnique({
-    where: { email: session.user.email }, select: { id: true },
+    where:  { email: session.user.email },
+    select: { id: true },
   });
   if (!dbUser) throw new Error("User not found.");
 
-  const guarantor = await prisma.loanGuarantor.findUnique({
-    where: { loanId_userId: { loanId, userId: dbUser.id } },
+  // Verify this guarantor record belongs to the current user
+  const guarantorRecord = await prisma.loanGuarantor.findUnique({
+    where: { id: loanGuarantorId },
   });
-  if (!guarantor) throw new Error("Guarantor record not found.");
-  if (guarantor.hasConsented) throw new Error("You have already accepted this request.");
-  if (guarantor.notes === DECLINED_FLAG) throw new Error("You have already declined this request.");
+  if (!guarantorRecord)
+    throw new Error("Guarantor record not found.");
+  if (guarantorRecord.userId !== dbUser.id)
+    throw new Error("You are not authorised to respond to this request.");
+  if (guarantorRecord.hasConsented)
+    throw new Error("You have already accepted this request.");
+  if (guarantorRecord.declined)
+    throw new Error("You have already declined this request.");
 
   // Mark this guarantor as consented
   await prisma.loanGuarantor.update({
-    where: { loanId_userId: { loanId, userId: dbUser.id } },
+    where: { id: loanGuarantorId },
     data:  { hasConsented: true, consentedAt: new Date() },
   });
 
-  // ── Check if ALL guarantors have now accepted ──────────────────────────────
+  // Check if ALL guarantors on this loan have now consented
   const allGuarantors = await prisma.loanGuarantor.findMany({
-    where: { loanId },
+    where: { loanId: guarantorRecord.loanId },
   });
 
   const allAccepted = allGuarantors.every(g =>
-    g.userId === dbUser.id ? true : g.hasConsented // current one just accepted
+    g.id === loanGuarantorId ? true : g.hasConsented // include the one we just updated
   );
 
   if (allAccepted) {
-    // Move loan to UNDER_REVIEW so Credit Committee can action it
+    // Auto-advance loan to UNDER_REVIEW — ready for committee
     await prisma.loan.update({
-      where: { id: loanId },
+      where: { id: guarantorRecord.loanId },
       data:  { status: LoanStatus.UNDER_REVIEW },
     });
   }
@@ -99,36 +113,48 @@ export async function acceptGuarantorRequest(loanId: string) {
 
 // =============================================================================
 // DECLINE GUARANTOR REQUEST
+// Marks the guarantor as declined and moves the loan back to DRAFT
+// so the applicant can select a different guarantor.
 // =============================================================================
 
-export async function declineGuarantorRequest(loanId: string, reason?: string) {
+export async function declineGuarantorRequest(
+  loanGuarantorId: string,
+  reason: string
+) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error("Not authenticated.");
 
   const dbUser = await prisma.user.findUnique({
-    where: { email: session.user.email }, select: { id: true, name: true, firstName: true },
+    where:  { email: session.user.email },
+    select: { id: true },
   });
   if (!dbUser) throw new Error("User not found.");
 
-  const guarantor = await prisma.loanGuarantor.findUnique({
-    where: { loanId_userId: { loanId, userId: dbUser.id } },
+  const guarantorRecord = await prisma.loanGuarantor.findUnique({
+    where: { id: loanGuarantorId },
   });
-  if (!guarantor) throw new Error("Guarantor record not found.");
-  if (guarantor.hasConsented)           throw new Error("You have already accepted — cannot decline.");
-  if (guarantor.notes === DECLINED_FLAG) throw new Error("You have already declined this request.");
+  if (!guarantorRecord)         throw new Error("Guarantor record not found.");
+  if (guarantorRecord.userId !== dbUser.id) throw new Error("Not authorised.");
+  if (guarantorRecord.declined) throw new Error("Already declined.");
+  if (guarantorRecord.hasConsented) throw new Error("Already accepted — cannot decline.");
 
-  // Encode decline in the notes field (no migration needed)
-  const declineNote = reason
-    ? `${DECLINED_FLAG}: ${reason}`
-    : DECLINED_FLAG;
+  await prisma.$transaction([
+    // Mark this guarantor as declined
+    prisma.loanGuarantor.update({
+      where: { id: loanGuarantorId },
+      data:  {
+        declined:      true,
+        declinedAt:    new Date(),
+        declineReason: reason?.trim() || "No reason provided.",
+      },
+    }),
 
-  await prisma.loanGuarantor.update({
-    where: { loanId_userId: { loanId, userId: dbUser.id } },
-    data:  { notes: declineNote, consentedAt: new Date() }, // consentedAt = responded at
-  });
-
-  // Keep loan at SUBMITTED but a decline is now visible to the applicant
-  // (loan will NOT move to UNDER_REVIEW until a replacement guarantor is found)
+    // Move loan back to DRAFT so applicant can resubmit with new guarantor
+    prisma.loan.update({
+      where: { id: guarantorRecord.loanId },
+      data:  { status: LoanStatus.DRAFT },
+    }),
+  ]);
 
   revalidatePath("/dashboard/loans");
   revalidatePath("/dashboard/loans/guarantor-requests");
