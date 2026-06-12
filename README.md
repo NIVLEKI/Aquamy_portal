@@ -59,7 +59,7 @@ Supabase Account (or local Postgres)
 2. Installation
 Bash
 # Clone the repository
-git clone https://github.com/your-username/aquamy-portal.git
+git clone https://github.com/NIVLEKI/aquamy-portal.git
 
 # Install dependencies
 npm install
