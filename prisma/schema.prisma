@@ -480,3 +480,13 @@ model Notification {
   @@index([userId])
   // @@map("notifications")
 }
+
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  authorId  String
+  isPinned  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

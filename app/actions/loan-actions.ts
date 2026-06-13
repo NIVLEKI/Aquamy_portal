@@ -46,8 +46,8 @@ export async function applyForLoan(formData: FormData) {
   const monthsAsMember = Math.floor(
     (Date.now() - new Date(dbUser.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 30)
   );
-  if (monthsAsMember < policy.minimumMonthsAsMember)
-    throw new Error(`You must be a member for at least ${policy.minimumMonthsAsMember} months to apply.`);
+  //if (monthsAsMember < policy.minimumMonthsAsMember)
+    //throw new Error(`You must be a member for at least ${policy.minimumMonthsAsMember} months to apply.`);
 
   // Validate guarantors
   const uniqueGuarantors = [...new Set(guarantorIds.filter(Boolean))];
@@ -195,3 +195,6 @@ export async function disburseLoan(loanId: string) {
   revalidatePath("/admin/loans");
   revalidatePath("/dashboard/loans");
 }
+
+
+//now we have to rectify some gaps, there is no approval page / button for fully guaranteed loan, then the admin should be able to terminate /suspend as in the constitution- users assuming procedure was followed by the commitee, also he will have the responsibility to update the joining dates(in the existing data entry hub not another page please) of each user since some registered before the site existed(make admin able to write over the auto dates) also he should bbe able to schedule meeting directly from the data entry page and notifications appaer as i have explained below . Then later we can deal with the settings page for users (profile updates ,pictures) Finally we can include a page dedicated for anoouncements/notifications from the admin

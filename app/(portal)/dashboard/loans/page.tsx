@@ -1,4 +1,7 @@
 // app/(portal)/dashboard/loans/page.tsx
+// Fix: guards the `declined` field with a try/catch fallback
+// so the page doesn't crash before the migration is applied.
+
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import prisma from "@/lib/prisma";
@@ -16,15 +19,15 @@ function kes(v: number) {
 }
 
 const STATUS_STYLES: Record<string, { label: string; classes: string }> = {
-  DRAFT:        { label: "Draft",        classes: "bg-stone-100 text-stone-600 border-stone-200" },
-  SUBMITTED:    { label: "Awaiting Guarantors", classes: "bg-amber-50 text-amber-700 border-amber-200" },
-  UNDER_REVIEW: { label: "Under Review", classes: "bg-purple-50 text-purple-700 border-purple-200" },
-  APPROVED:     { label: "Approved",     classes: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  DISBURSED:    { label: "Disbursed",    classes: "bg-blue-50 text-blue-700 border-blue-200" },
-  REPAYING:     { label: "Repaying",     classes: "bg-amber-50 text-amber-700 border-amber-200" },
-  FULLY_REPAID: { label: "Fully Repaid", classes: "bg-slate-100 text-slate-500 border-slate-200" },
-  REJECTED:     { label: "Rejected",     classes: "bg-red-50 text-red-700 border-red-200" },
-  DEFAULTED:    { label: "Defaulted",    classes: "bg-red-100 text-red-800 border-red-300" },
+  DRAFT:        { label: "Draft",               classes: "bg-stone-100  text-stone-600  border-stone-200" },
+  SUBMITTED:    { label: "Awaiting Guarantors", classes: "bg-amber-50   text-amber-700  border-amber-200" },
+  UNDER_REVIEW: { label: "Under Review",        classes: "bg-purple-50  text-purple-700 border-purple-200" },
+  APPROVED:     { label: "Approved",            classes: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  DISBURSED:    { label: "Disbursed",           classes: "bg-blue-50    text-blue-700   border-blue-200" },
+  REPAYING:     { label: "Repaying",            classes: "bg-amber-50   text-amber-700  border-amber-200" },
+  FULLY_REPAID: { label: "Fully Repaid",        classes: "bg-slate-100  text-slate-500  border-slate-200" },
+  REJECTED:     { label: "Rejected",            classes: "bg-red-50     text-red-700    border-red-200" },
+  DEFAULTED:    { label: "Defaulted",           classes: "bg-red-100    text-red-800    border-red-300" },
 };
 
 export default async function LoansPage() {
@@ -32,12 +35,13 @@ export default async function LoansPage() {
   if (!session?.user?.email) redirect("/login");
 
   const dbUser = await prisma.user.findUnique({
-    where: { email: session.user.email },
+    where:  { email: session.user.email },
     select: { id: true },
   });
   if (!dbUser) redirect("/login");
 
-  const [loans, activePolicy, pendingGuarantorCount] = await Promise.all([
+  // ── Main loan fetch ───────────────────────────────────────────────────────
+  const [loans, activePolicy] = await Promise.all([
     prisma.loan.findMany({
       where:   { userId: dbUser.id },
       orderBy: { createdAt: "desc" },
@@ -45,24 +49,45 @@ export default async function LoansPage() {
         repayments: { orderBy: { dueDate: "asc" } },
         guarantors: {
           include: {
-            user: { select: { name: true, firstName: true, lastName: true, memberNumber: true } },
+            user: {
+              select: {
+                name: true, firstName: true,
+                lastName: true, memberNumber: true,
+              },
+            },
           },
         },
       },
     }),
-
     prisma.loanPolicy.findFirst({ where: { active: true } }),
+  ]);
 
-    // How many loans need this user's guarantor response
-    prisma.loanGuarantor.count({
+  // ── Pending guarantor count — safe: falls back to 0 if migration not run ──
+  // Remove this try/catch once `npx prisma migrate dev` has been run.
+  let pendingGuarantorCount = 0;
+  try {
+    pendingGuarantorCount = await prisma.loanGuarantor.count({
       where: {
         userId:       dbUser.id,
         hasConsented: false,
-        declined:     false,
-        loan: { status: { in: [LoanStatus.SUBMITTED, LoanStatus.UNDER_REVIEW] } },
+        declined:     false,          // ← new field; safe after migration
+        loan: {
+          status: { in: [LoanStatus.SUBMITTED, LoanStatus.UNDER_REVIEW] },
+        },
       },
-    }),
-  ]);
+    });
+  } catch {
+    // Migration not yet applied — count only by hasConsented
+    pendingGuarantorCount = await prisma.loanGuarantor.count({
+      where: {
+        userId:       dbUser.id,
+        hasConsented: false,
+        loan: {
+          status: { in: [LoanStatus.SUBMITTED, LoanStatus.UNDER_REVIEW] },
+        },
+      },
+    });
+  }
 
   return (
     <div className="p-6 lg:p-10 max-w-4xl mx-auto space-y-6">
@@ -89,7 +114,8 @@ export default async function LoansPage() {
             <Users size={18} className="text-amber-600 flex-shrink-0" />
             <div>
               <p className="text-sm font-bold text-amber-800">
-                You have {pendingGuarantorCount} pending guarantor request{pendingGuarantorCount > 1 ? "s" : ""}
+                You have {pendingGuarantorCount} pending guarantor{" "}
+                request{pendingGuarantorCount > 1 ? "s" : ""}
               </p>
               <p className="text-xs text-amber-600 mt-0.5">
                 Other members need your response before their loans can proceed.
@@ -100,7 +126,7 @@ export default async function LoansPage() {
         </Link>
       )}
 
-      {/* Active policy summary */}
+      {/* Active policy info */}
       {activePolicy && (
         <div className="bg-stone-50 border border-stone-200 rounded-xl p-4 flex flex-wrap gap-6 text-xs">
           <div>
@@ -152,11 +178,14 @@ export default async function LoansPage() {
               r => r.status === "PENDING" || r.status === "MISSED"
             );
 
-            // Guarantor status breakdown
-            const accepted  = loan.guarantors.filter(g => g.hasConsented);
-            const declined  = loan.guarantors.filter(g => g.declined);
-            const pending   = loan.guarantors.filter(g => !g.hasConsented && !g.declined);
-            const hasDecline = declined.length > 0;
+            // Guarantor status — safe access for declined (may not exist pre-migration)
+            const accepted = loan.guarantors.filter(g => g.hasConsented);
+            const declined = loan.guarantors.filter(
+              g => (g as typeof g & { declined?: boolean }).declined === true
+            );
+            const pending  = loan.guarantors.filter(
+              g => !g.hasConsented && !(g as typeof g & { declined?: boolean }).declined
+            );
 
             return (
               <div key={loan.id}
@@ -180,13 +209,13 @@ export default async function LoansPage() {
                   </div>
                 </div>
 
-                {/* Loan stats */}
+                {/* Stats */}
                 <div className="px-6 py-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm border-b border-stone-100">
                   {[
                     { label: "Total Repayable",  value: kes(loan.totalRepayable) },
-                    { label: "Outstanding",      value: kes(loan.outstandingBalance) },
-                    { label: "Monthly",          value: kes(loan.monthlyInstalment) },
-                    { label: "Applied",          value: new Date(loan.createdAt).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" }) },
+                    { label: "Outstanding",       value: kes(loan.outstandingBalance) },
+                    { label: "Monthly",           value: kes(loan.monthlyInstalment) },
+                    { label: "Applied",           value: new Date(loan.createdAt).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" }) },
                   ].map(({ label, value }) => (
                     <div key={label}>
                       <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wider">{label}</p>
@@ -195,7 +224,7 @@ export default async function LoansPage() {
                   ))}
                 </div>
 
-                {/* ── GUARANTOR STATUS ─────────────────────────────── */}
+                {/* Guarantor status */}
                 {loan.guarantors.length > 0 && (
                   <div className="px-6 py-4 border-b border-stone-100">
                     <p className="text-[10px] font-black uppercase tracking-wider text-stone-400 mb-3">
@@ -203,45 +232,42 @@ export default async function LoansPage() {
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {loan.guarantors.map(g => {
-                        const gName = g.user.firstName
+                        const gName    = g.user.firstName
                           ? `${g.user.firstName} ${g.user.lastName}`
                           : g.user.name;
+                        const isDeclined = (g as typeof g & { declined?: boolean }).declined;
+                        const declineReason = (g as typeof g & { declineReason?: string }).declineReason;
 
                         if (g.hasConsented) return (
                           <div key={g.id}
                             className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold px-3 py-1.5 rounded-full">
-                            <ShieldCheck size={12} />
-                            {gName} — Accepted
+                            <ShieldCheck size={12} /> {gName} — Accepted
                           </div>
                         );
-
-                        if (g.declined) return (
+                        if (isDeclined) return (
                           <div key={g.id}
                             className="flex flex-col gap-1 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-3 py-2 rounded-xl">
                             <div className="flex items-center gap-1.5">
-                              <ShieldX size={12} />
-                              {gName} — <span className="font-black">Declined</span>
+                              <ShieldX size={12} /> {gName} —{" "}
+                              <span className="font-black">Declined</span>
                             </div>
-                            {g.declineReason && (
+                            {declineReason && (
                               <p className="text-[10px] text-red-500 font-normal italic">
-                                "{g.declineReason}"
+                                "{declineReason}"
                               </p>
                             )}
                           </div>
                         );
-
                         return (
                           <div key={g.id}
                             className="flex items-center gap-1.5 bg-stone-50 border border-stone-200 text-stone-500 text-xs font-semibold px-3 py-1.5 rounded-full">
-                            <Clock size={12} />
-                            {gName} — Pending
+                            <Clock size={12} /> {gName} — Pending
                           </div>
                         );
                       })}
                     </div>
 
-                    {/* Decline warning — tells applicant what to do */}
-                    {hasDecline && loan.status === LoanStatus.DRAFT && (
+                    {declined.length > 0 && loan.status === LoanStatus.DRAFT && (
                       <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-100 rounded-lg p-3">
                         <AlertTriangle size={13} className="text-red-500 flex-shrink-0 mt-0.5" />
                         <div>
@@ -249,10 +275,10 @@ export default async function LoansPage() {
                             A guarantor declined — your loan was returned to Draft
                           </p>
                           <p className="text-xs text-red-600 mt-0.5">
-                            Please select a replacement guarantor and resubmit.
+                            Select a replacement guarantor and resubmit.
                           </p>
                           <Link href="/dashboard/loans/apply"
-                            className="inline-flex items-center gap-1 text-xs font-bold text-red-700 hover:underline mt-1">
+                            className="text-xs font-bold text-red-700 hover:underline mt-1 inline-block">
                             Reapply with new guarantors →
                           </Link>
                         </div>
@@ -262,7 +288,8 @@ export default async function LoansPage() {
                 )}
 
                 {/* Repayment progress */}
-                {[LoanStatus.REPAYING, LoanStatus.DISBURSED, LoanStatus.FULLY_REPAID].includes(loan.status) && (
+                {[LoanStatus.REPAYING, LoanStatus.DISBURSED, LoanStatus.FULLY_REPAID]
+                  .includes(loan.status) && (
                   <div className="px-6 py-4 border-b border-stone-100">
                     <div className="flex items-center justify-between text-xs text-stone-500 mb-2">
                       <span>{paidCount} of {loan.repayments.length} instalments paid</span>
@@ -272,7 +299,7 @@ export default async function LoansPage() {
                       <span className="font-bold text-stone-700">{progress.toFixed(0)}%</span>
                     </div>
                     <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-[#1C4A2E] rounded-full transition-all"
+                      <div className="h-full bg-[#1C4A2E] rounded-full"
                         style={{ width: `${Math.min(progress, 100)}%` }} />
                     </div>
                     {nextDue && (

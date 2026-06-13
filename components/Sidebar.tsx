@@ -1,5 +1,5 @@
-// components/Sidebar.tsx
-// v2 — Mobile responsive (hamburger drawer) + Dark mode + Theme toggle
+// components/Sidebar.tsx — v3
+// Adds: Announcements nav link + unread badge + Megaphone icon
 "use client";
 
 import Link from "next/link";
@@ -11,60 +11,84 @@ import {
   LayoutDashboard, Wallet, Landmark, Coins,
   Users, FileText, ShieldCheck, BarChart2,
   UserPlus, LogOut, ChevronRight, Settings,
-  Sun, Moon, Menu, X,
+  Sun, Moon, Menu, X, Megaphone,
 } from "lucide-react";
 
 interface SidebarProps {
-  role:         string;
-  name:         string;
-  memberNumber: string;
+  role:           string;
+  name:           string;
+  memberNumber:   string;
+  unreadCount?:   number;   // passed from portal layout
 }
 
 const MEMBER_NAV = [
-  { label: "Dashboard",     href: "/dashboard",             icon: LayoutDashboard },
-  { label: "Contributions", href: "/dashboard/contributions", icon: Wallet         },
-  { label: "Loans",         href: "/dashboard/loans",       icon: Landmark        },
-  { label: "Shares",        href: "/dashboard/shares",      icon: Coins           },
-  { label: "Payments",      href: "/dashboard/payments",    icon: Wallet          },
+  { label: "Dashboard",     href: "/dashboard",                  icon: LayoutDashboard },
+  { label: "Contributions", href: "/dashboard/contributions",    icon: Wallet          },
+  { label: "Loans",         href: "/dashboard/loans",            icon: Landmark        },
+  { label: "Shares",        href: "/dashboard/shares",           icon: Coins           },
+  { label: "Payments",      href: "/dashboard/payments",         icon: Wallet          },
+  { label: "Announcements", href: "/dashboard/announcements",    icon: Megaphone       },
 ];
 
 const ADMIN_NAV = [
-  { label: "Overview",     href: "/admin",             icon: LayoutDashboard, roles: null },
-  { label: "Approvals",    href: "/admin/approvals",   icon: UserPlus,        roles: null },
-  { label: "Data Entry",   href: "/admin/data-entry",  icon: FileText,        roles: ["ADMIN","TREASURER"] },
-  { label: "Members",      href: "/admin/members",     icon: Users,           roles: null },
-  { label: "Loans",        href: "/admin/loans",       icon: Landmark,        roles: ["ADMIN","TREASURER","CHAIRPERSON","CREDIT_COMMITTEE_MEMBER","LOAN_OFFICER"] },
-  { label: "Invite Codes", href: "/admin/codes",       icon: ShieldCheck,     roles: ["ADMIN","SECRETARY"] },
-  { label: "Reports",      href: "/admin/reports",     icon: BarChart2,       roles: ["ADMIN","TREASURER","AUDITOR","CHAIRPERSON"] },
+  { label: "Overview",      href: "/admin",                  icon: LayoutDashboard, roles: null },
+  { label: "Approvals",     href: "/admin/approvals",        icon: UserPlus,        roles: null },
+  { label: "Data Entry",    href: "/admin/data-entry",       icon: FileText,        roles: ["ADMIN","TREASURER"] },
+  { label: "Members",       href: "/admin/members",          icon: Users,           roles: null },
+  { label: "Loans",         href: "/admin/loans",            icon: Landmark,        roles: ["ADMIN","TREASURER","CHAIRPERSON","CREDIT_COMMITTEE_MEMBER","LOAN_OFFICER"] },
+  { label: "Invite Codes",  href: "/admin/codes",            icon: ShieldCheck,     roles: ["ADMIN","SECRETARY"] },
+  { label: "Reports",       href: "/admin/reports",          icon: BarChart2,       roles: ["ADMIN","TREASURER","AUDITOR","CHAIRPERSON"] },
+  { label: "Announcements", href: "/admin/announcements",    icon: Megaphone,       roles: null },
 ];
 
-const ADMIN_ROLES = ["ADMIN","CHAIRPERSON","VICE_CHAIRPERSON","TREASURER","SECRETARY","AUDITOR","CREDIT_COMMITTEE_MEMBER","LOAN_OFFICER"];
+const ADMIN_ROLES = [
+  "ADMIN","CHAIRPERSON","VICE_CHAIRPERSON","TREASURER",
+  "SECRETARY","AUDITOR","CREDIT_COMMITTEE_MEMBER","LOAN_OFFICER",
+];
 
-export default function Sidebar({ role, name, memberNumber }: SidebarProps) {
-  const pathname   = usePathname();
-  const { theme, setTheme, resolvedTheme } = useTheme();
-  const [mounted,      setMounted]  = useState(false);
-  const [mobileOpen,   setMobileOpen] = useState(false);
+export default function Sidebar({ role, name, memberNumber, unreadCount = 0 }: SidebarProps) {
+  const pathname  = usePathname();
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted,    setMounted]    = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Avoid hydration mismatch on theme
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => setMounted(true), []);
 
-  const isAdmin    = ADMIN_ROLES.includes(role);
-  const initials   = name.split(" ").map(w => w[0]).slice(0,2).join("").toUpperCase() || "?";
-  const isDark     = resolvedTheme === "dark";
+  const isAdmin = ADMIN_ROLES.includes(role);
+  const isDark  = resolvedTheme === "dark";
+  const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase() || "?";
 
-  function NavLink({ href, label, icon: Icon }: { href: string; label: string; icon: React.ElementType }) {
-    const active = pathname === href || (href !== "/dashboard" && href !== "/admin" && pathname.startsWith(href));
+  function NavLink({
+    href, label, icon: Icon, badge,
+  }: {
+    href: string; label: string; icon: React.ElementType; badge?: number;
+  }) {
+    const active =
+      pathname === href ||
+      (href !== "/dashboard" && href !== "/admin" && pathname.startsWith(href));
+
     return (
       <Link href={href} onClick={() => setMobileOpen(false)}
-        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group
+        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group relative
           ${active
-            ? "bg-brand text-white shadow-sm"
+            ? "bg-[#1C4A2E] text-white shadow-sm"
             : "text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 hover:text-stone-800 dark:hover:text-stone-200"
           }`}>
-        <Icon size={16} className={active ? "text-white" : "text-stone-400 dark:text-stone-500 group-hover:text-stone-600 dark:group-hover:text-stone-300"} />
+        <Icon size={16} className={active
+          ? "text-white"
+          : "text-stone-400 dark:text-stone-500 group-hover:text-stone-600 dark:group-hover:text-stone-300"}
+        />
         <span className="flex-1">{label}</span>
-        {active && <ChevronRight size={12} className="text-white/60" />}
+        {/* Unread badge — only shown on Announcements when there are unread */}
+        {badge != null && badge > 0 && (
+          <span className={`text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0
+            ${active
+              ? "bg-white text-[#1C4A2E]"
+              : "bg-red-500 text-white"}`}>
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
+        {active && !badge && <ChevronRight size={12} className="text-white/60" />}
       </Link>
     );
   }
@@ -74,24 +98,36 @@ export default function Sidebar({ role, name, memberNumber }: SidebarProps) {
       {/* Brand */}
       <div className="px-5 py-5 border-b border-stone-200 dark:border-stone-700 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-[#1C4A2E] flex items-center justify-center flex-shrink-0">
             <span className="text-white text-xs font-black tracking-tighter">AQ</span>
           </div>
           <div>
-            <p className="text-[10px] font-black text-stone-400 dark:text-stone-500 uppercase tracking-widest leading-none">AQUAMY</p>
-            <p className="text-[10px] text-stone-400 dark:text-stone-500 leading-none mt-0.5">Member Portal</p>
+            <p className="text-[10px] font-black text-stone-400 dark:text-stone-500 uppercase tracking-widest leading-none">
+              AQUAMY
+            </p>
+            <p className="text-[10px] text-stone-400 dark:text-stone-500 leading-none mt-0.5">
+              Member Portal
+            </p>
           </div>
         </div>
-        {/* Mobile close button */}
-        <button onClick={() => setMobileOpen(false)} className="lg:hidden text-stone-400 hover:text-stone-600 dark:hover:text-stone-300">
+        <button onClick={() => setMobileOpen(false)}
+          className="lg:hidden text-stone-400 hover:text-stone-600 dark:hover:text-stone-300">
           <X size={18} />
         </button>
       </div>
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        <p className="text-[9px] font-black uppercase tracking-widest text-stone-300 dark:text-stone-600 px-3 pb-2 pt-1">My Account</p>
-        {MEMBER_NAV.map(item => <NavLink key={item.href} {...item} />)}
+        <p className="text-[9px] font-black uppercase tracking-widest text-stone-300 dark:text-stone-600 px-3 pb-2 pt-1">
+          My Account
+        </p>
+        {MEMBER_NAV.map(item => (
+          <NavLink
+            key={item.href}
+            {...item}
+            badge={item.href === "/dashboard/announcements" ? unreadCount : undefined}
+          />
+        ))}
 
         {isAdmin && (
           <>
@@ -102,7 +138,9 @@ export default function Sidebar({ role, name, memberNumber }: SidebarProps) {
             </div>
             {ADMIN_NAV
               .filter(item => !item.roles || item.roles.includes(role))
-              .map(item => <NavLink key={item.href} {...item} />)}
+              .map(item => (
+                <NavLink key={item.href} {...item} />
+              ))}
           </>
         )}
       </nav>
@@ -111,7 +149,7 @@ export default function Sidebar({ role, name, memberNumber }: SidebarProps) {
       <div className="px-3 py-4 border-t border-stone-100 dark:border-stone-700 space-y-1">
         {/* User card */}
         <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-stone-50 dark:bg-stone-800 mb-2">
-          <div className="w-8 h-8 rounded-full bg-brand flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+          <div className="w-8 h-8 rounded-full bg-[#1C4A2E] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
             {initials}
           </div>
           <div className="min-w-0">
@@ -124,8 +162,7 @@ export default function Sidebar({ role, name, memberNumber }: SidebarProps) {
         {mounted && (
           <button
             onClick={() => setTheme(isDark ? "light" : "dark")}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 hover:text-stone-800 dark:hover:text-stone-200 transition-all"
-          >
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 hover:text-stone-800 dark:hover:text-stone-200 transition-all">
             {isDark
               ? <Sun  size={15} className="text-amber-400" />
               : <Moon size={15} className="text-stone-400" />}
@@ -139,7 +176,8 @@ export default function Sidebar({ role, name, memberNumber }: SidebarProps) {
           Settings
         </Link>
 
-        <button onClick={() => signOut({ callbackUrl: "/login" })}
+        <button
+          onClick={() => signOut({ callbackUrl: "/login" })}
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-stone-500 dark:text-stone-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 transition-all group">
           <LogOut size={15} className="text-stone-400 group-hover:text-red-500" />
           Sign Out
@@ -150,15 +188,20 @@ export default function Sidebar({ role, name, memberNumber }: SidebarProps) {
 
   return (
     <>
-      {/* ── Mobile hamburger button (shows on small screens) ──────────── */}
+      {/* Mobile hamburger */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 w-10 h-10 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg flex items-center justify-center shadow-sm"
-      >
+        className="lg:hidden fixed top-4 left-4 z-50 w-10 h-10 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg flex items-center justify-center shadow-sm">
         <Menu size={18} className="text-stone-600 dark:text-stone-400" />
+        {/* Badge on hamburger when sidebar is closed */}
+        {unreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
       </button>
 
-      {/* ── Mobile overlay backdrop ────────────────────────────────────── */}
+      {/* Mobile backdrop */}
       {mobileOpen && (
         <div
           className="lg:hidden fixed inset-0 bg-black/40 z-40 backdrop-blur-sm"
@@ -166,7 +209,7 @@ export default function Sidebar({ role, name, memberNumber }: SidebarProps) {
         />
       )}
 
-      {/* ── Mobile drawer ──────────────────────────────────────────────── */}
+      {/* Mobile drawer */}
       <aside className={`
         lg:hidden fixed inset-y-0 left-0 z-50 w-72
         bg-white dark:bg-stone-900 border-r border-stone-200 dark:border-stone-700
@@ -176,7 +219,7 @@ export default function Sidebar({ role, name, memberNumber }: SidebarProps) {
         <SidebarContent />
       </aside>
 
-      {/* ── Desktop sidebar (always visible on lg+) ────────────────────── */}
+      {/* Desktop sidebar */}
       <aside className="hidden lg:flex lg:flex-col w-64 min-h-screen bg-white dark:bg-stone-900 border-r border-stone-200 dark:border-stone-700 flex-shrink-0">
         <SidebarContent />
       </aside>
