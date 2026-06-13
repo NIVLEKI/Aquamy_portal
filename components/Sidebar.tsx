@@ -226,3 +226,4 @@ export default function Sidebar({ role, name, memberNumber, unreadCount = 0 }: S
     </>
   );
 }
+
