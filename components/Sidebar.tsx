@@ -116,22 +116,30 @@ export default function Sidebar({ role, name, memberNumber, unreadCount = 0 }: S
         </button>
       </div>
 
-      {/* Nav */}
+     {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        <p className="text-[9px] font-black uppercase tracking-widest text-stone-300 dark:text-stone-600 px-3 pb-2 pt-1">
-          My Account
-        </p>
-        {MEMBER_NAV.map(item => (
-          <NavLink
-            key={item.href}
-            {...item}
-            badge={item.href === "/dashboard/announcements" ? unreadCount : undefined}
-          />
-        ))}
+        
+        {/* ONLY show member nav if the user is NOT an admin */}
+        {!isAdmin && (
+          <>
+            <p className="text-[9px] font-black uppercase tracking-widest text-stone-300 dark:text-stone-600 px-3 pb-2 pt-1">
+              My Account
+            </p>
+            {MEMBER_NAV.map(item => (
+              <NavLink
+                key={item.href}
+                {...item}
+                badge={item.href === "/dashboard/announcements" ? unreadCount : undefined}
+              />
+            ))}
+          </>
+        )}
 
+        {/* ONLY show admin nav if the user IS an admin */}
         {isAdmin && (
           <>
-            <div className="pt-4 pb-2">
+            {/* Changed pt-4 to pt-1 here so the admin header sits nicely at the top of the sidebar */}
+            <div className="pt-1 pb-2">
               <p className="text-[9px] font-black uppercase tracking-widest text-stone-300 dark:text-stone-600 px-3">
                 {role.replace(/_/g, " ")}
               </p>
