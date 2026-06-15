@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import { useState, useEffect } from "react";
+import Image from "next/image"; // <-- ADDED: Import Next.js Image
 import {
   LayoutDashboard, Wallet, Landmark, Coins,
   Users, FileText, ShieldCheck, BarChart2,
@@ -19,6 +20,7 @@ interface SidebarProps {
   name:           string;
   memberNumber:   string;
   unreadCount?:   number;   // passed from portal layout
+  profilePhotoUrl?: string | null; // <-- ADDED: Accept the profile photo URL
 }
 
 const MEMBER_NAV = [
@@ -46,7 +48,7 @@ const ADMIN_ROLES = [
   "SECRETARY","AUDITOR","CREDIT_COMMITTEE_MEMBER","LOAN_OFFICER",
 ];
 
-export default function Sidebar({ role, name, memberNumber, unreadCount = 0 }: SidebarProps) {
+export default function Sidebar({ role, name, memberNumber, unreadCount = 0, profilePhotoUrl }: SidebarProps) { // <-- UPDATED: Destructure profilePhotoUrl
   const pathname  = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted,    setMounted]    = useState(false);
@@ -157,9 +159,24 @@ export default function Sidebar({ role, name, memberNumber, unreadCount = 0 }: S
       <div className="px-3 py-4 border-t border-stone-100 dark:border-stone-700 space-y-1">
         {/* User card */}
         <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-stone-50 dark:bg-stone-800 mb-2">
-          <div className="w-8 h-8 rounded-full bg-[#1C4A2E] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {initials}
-          </div>
+          
+          {/* <-- UPDATED: Render Image if URL exists, otherwise fallback to initials */}
+          {profilePhotoUrl ? (
+            <div className="relative w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border border-stone-200 dark:border-stone-700">
+              <Image 
+                src={profilePhotoUrl} 
+                alt={`${name}'s profile photo`} 
+                fill 
+                className="object-cover"
+                sizes="32px"
+              />
+            </div>
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-[#1C4A2E] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+              {initials}
+            </div>
+          )}
+
           <div className="min-w-0">
             <p className="text-xs font-bold text-stone-800 dark:text-stone-200 truncate">{name || "Member"}</p>
             <p className="text-[10px] font-mono text-stone-400 dark:text-stone-500">{memberNumber}</p>
@@ -234,4 +251,3 @@ export default function Sidebar({ role, name, memberNumber, unreadCount = 0 }: S
     </>
   );
 }
-

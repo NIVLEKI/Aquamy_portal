@@ -144,6 +144,7 @@ model User {
   status        MemberStatus @default(PENDING)
   isActive      Boolean      @default(true)
   createdAt     DateTime     @default(now())
+  profilePhotoUrl   String?            @db.Text
 
   contributions     Contribution[]
   shares            Share?
@@ -157,6 +158,10 @@ model User {
   mpesaTransactions MpesaTransaction[]
   notifications     Notification[]
   inviteCode        InviteCode?
+  
+
+  authoredAnnouncements Announcement[]     @relation("AnnouncementAuthor")
+  announcementReads     AnnouncementRead[]
 
   @@index([status])
   @@index([role])
@@ -323,6 +328,7 @@ model Meeting {
   date        DateTime
   type        MeetingType
   venue       String?
+  agenda     String?
   quorumMet   Boolean           @default(false)
   minutesUrl  String?
   attendances AttendanceRecord[]
@@ -383,6 +389,8 @@ model MpesaTransaction {
   callbackPayload   Json?
   createdAt         DateTime @default(now())
   completedAt       DateTime?
+  resultCode        Int?     
+  resultDescription String?
 
   contribution      Contribution?
   loanRepayment     LoanRepayment?
@@ -484,9 +492,28 @@ model Notification {
 model Announcement {
   id        String   @id @default(cuid())
   title     String
-  body      String
+  body      String   @db.Text // @db.Text allows for longer announcements
   authorId  String
   isPinned  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // 1. Links the authorId to your actual User table
+  author    User     @relation("AnnouncementAuthor", fields: [authorId], references: [id])
+
+  // 2. This satisfies the `_count: true` requirement in your Next.js code!
+  readByUsers AnnouncementRead[]
+}
+
+// 3. The joining table to track read receipts
+model AnnouncementRead {
+  id             String       @id @default(cuid())
+  userId         String
+  announcementId String
+  readAt         DateTime     @default(now())
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, announcementId])
 }

@@ -104,15 +104,10 @@ export default withAuth(
     return NextResponse.next();
   },
   {
-    callbacks: {
-      // `authorized` runs before our middleware function.
-      // Returning false here redirects to the signIn page (defined in authOptions).
-      // We return true for /waiting-room so pending members can see it.
-      authorized: ({ token, req }) => {
-        const path = req.nextUrl.pathname;
-        if (path === "/waiting-room") return true; // public to logged-in & out
-        return !!token; // all other protected routes require a token
-      },
+        callbacks: {
+      // Allow the request through to the middleware function where 
+      // your actual, robust token and role validation logic lives.
+      authorized: () => true,
     },
   }
 );

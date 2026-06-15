@@ -173,5 +173,5 @@ export async function markNotificationsRead() {
     data:   { readAt: new Date() },
   });
 
-  revalidatePath("/dashboard/announcements");
+  //revalidatePath("/dashboard/announcements");
 }

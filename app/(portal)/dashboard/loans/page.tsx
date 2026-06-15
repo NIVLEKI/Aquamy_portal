@@ -1,12 +1,10 @@
 // app/(portal)/dashboard/loans/page.tsx
-// Fix: guards the `declined` field with a try/catch fallback
-// so the page doesn't crash before the migration is applied.
-
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import prisma from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { LoanStatus } from "@prisma/client";
+import LoanPaymentWidget from "./LoanPaymentWidget";
 import Link from "next/link";
 import {
   Landmark, PlusCircle, Clock, BadgeCheck,
@@ -34,9 +32,10 @@ export default async function LoansPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect("/login");
 
+  // FIX 1: Combined the duplicate 'select' blocks into one valid declaration
   const dbUser = await prisma.user.findUnique({
     where:  { email: session.user.email },
-    select: { id: true },
+    select: { id: true, phone: true },
   });
   if (!dbUser) redirect("/login");
 
@@ -62,22 +61,20 @@ export default async function LoansPage() {
     prisma.loanPolicy.findFirst({ where: { active: true } }),
   ]);
 
-  // ── Pending guarantor count — safe: falls back to 0 if migration not run ──
-  // Remove this try/catch once `npx prisma migrate dev` has been run.
+  // ── Pending guarantor count ───────────────────────────────────────────────
   let pendingGuarantorCount = 0;
   try {
     pendingGuarantorCount = await prisma.loanGuarantor.count({
       where: {
         userId:       dbUser.id,
         hasConsented: false,
-        declined:     false,          // ← new field; safe after migration
+        declined:     false,
         loan: {
           status: { in: [LoanStatus.SUBMITTED, LoanStatus.UNDER_REVIEW] },
         },
       },
     });
   } catch {
-    // Migration not yet applied — count only by hasConsented
     pendingGuarantorCount = await prisma.loanGuarantor.count({
       where: {
         userId:       dbUser.id,
@@ -178,18 +175,12 @@ export default async function LoansPage() {
               r => r.status === "PENDING" || r.status === "MISSED"
             );
 
-            // Guarantor status — safe access for declined (may not exist pre-migration)
-            const accepted = loan.guarantors.filter(g => g.hasConsented);
             const declined = loan.guarantors.filter(
               g => (g as typeof g & { declined?: boolean }).declined === true
             );
-            const pending  = loan.guarantors.filter(
-              g => !g.hasConsented && !(g as typeof g & { declined?: boolean }).declined
-            );
 
             return (
-              <div key={loan.id}
-                className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
+              <div key={loan.id} className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
 
                 {/* Header */}
                 <div className="px-6 py-4 border-b border-stone-100 flex flex-wrap items-center justify-between gap-3">
@@ -212,7 +203,7 @@ export default async function LoansPage() {
                 {/* Stats */}
                 <div className="px-6 py-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm border-b border-stone-100">
                   {[
-                    { label: "Total Repayable",  value: kes(loan.totalRepayable) },
+                    { label: "Total Repayable",   value: kes(loan.totalRepayable) },
                     { label: "Outstanding",       value: kes(loan.outstandingBalance) },
                     { label: "Monthly",           value: kes(loan.monthlyInstalment) },
                     { label: "Applied",           value: new Date(loan.createdAt).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" }) },
@@ -232,7 +223,7 @@ export default async function LoansPage() {
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {loan.guarantors.map(g => {
-                        const gName    = g.user.firstName
+                        const gName = g.user.firstName
                           ? `${g.user.firstName} ${g.user.lastName}`
                           : g.user.name;
                         const isDeclined = (g as typeof g & { declined?: boolean }).declined;
@@ -287,40 +278,55 @@ export default async function LoansPage() {
                   </div>
                 )}
 
-                {/* Repayment progress */}
-                {[LoanStatus.REPAYING, LoanStatus.DISBURSED, LoanStatus.FULLY_REPAID]
-                  .includes(loan.status) && (
-                  <div className="px-6 py-4 border-b border-stone-100">
-                    <div className="flex items-center justify-between text-xs text-stone-500 mb-2">
-                      <span>{paidCount} of {loan.repayments.length} instalments paid</span>
-                      {missedCount > 0 && (
-                        <span className="text-red-600 font-semibold">{missedCount} missed</span>
-                      )}
-                      <span className="font-bold text-stone-700">{progress.toFixed(0)}%</span>
+                {/* Repayment progress section */}
+                {[LoanStatus.REPAYING, LoanStatus.DISBURSED, LoanStatus.FULLY_REPAID].includes(loan.status) && (
+                  <div className="px-6 py-5 border-b border-stone-100 bg-stone-50/50 space-y-4">
+                    
+                    {/* Progress Bar Container */}
+                    <div>
+                      <div className="flex items-center justify-between text-xs text-stone-500 mb-2">
+                        <span>{paidCount} of {loan.repayments.length} instalments paid</span>
+                        {missedCount > 0 && (
+                          <span className="text-red-600 font-semibold">{missedCount} missed</span>
+                        )}
+                        <span className="font-bold text-stone-700">{progress.toFixed(0)}%</span>
+                      </div>
+                      <div className="h-2 bg-stone-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-[#1C4A2E] rounded-full transition-all duration-500"
+                          style={{ width: `${Math.min(progress, 100)}%` }} />
+                      </div>
                     </div>
-                    <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-[#1C4A2E] rounded-full"
-                        style={{ width: `${Math.min(progress, 100)}%` }} />
-                    </div>
+
+                    {/* Alert for Next Due Instalment */}
                     {nextDue && (
-                      <div className={`mt-3 flex items-center justify-between gap-2 rounded-lg px-3 py-2
-                        ${nextDue.status === "MISSED"
-                          ? "bg-red-50 border border-red-100"
-                          : "bg-amber-50 border border-amber-100"}`}>
-                        <div className="flex items-center gap-2">
-                          <Clock size={12} className={nextDue.status === "MISSED" ? "text-red-500" : "text-amber-600"} />
-                          <p className={`text-xs ${nextDue.status === "MISSED" ? "text-red-700" : "text-amber-700"}`}>
-                            {nextDue.status === "MISSED" ? "Missed" : "Next"} instalment{" "}
-                            <strong>{kes(nextDue.expectedAmount)}</strong> due{" "}
-                            {new Date(nextDue.dueDate).toLocaleDateString("en-KE", {
-                              day: "numeric", month: "short", year: "numeric",
-                            })}
-                          </p>
+                      <div className={`flex items-center gap-2 rounded-lg px-3 py-2.5 border
+                        ${nextDue.status === "MISSED" ? "bg-red-50 border-red-100" : "bg-amber-50 border-amber-100"}`}>
+                        <Clock size={14} className={nextDue.status === "MISSED" ? "text-red-500" : "text-amber-600"} />
+                        <p className={`text-xs ${nextDue.status === "MISSED" ? "text-red-700" : "text-amber-700"}`}>
+                          {nextDue.status === "MISSED" ? "Missed" : "Next"} instalment{" "}
+                          <strong>{kes(nextDue.expectedAmount)}</strong> is due on{" "}
+                          {new Date(nextDue.dueDate).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" })}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* FIX 2: Inline Payment Widget implementation and cleanup of broken layout tags */}
+                    {[LoanStatus.DISBURSED, LoanStatus.REPAYING].includes(loan.status) && loan.outstandingBalance > 0 && (
+                      <div className="space-y-3">
+                        <LoanPaymentWidget 
+                          loanId={loan.id} 
+                          outstandingBalance={loan.outstandingBalance} 
+                          instalment={nextDue?.expectedAmount || loan.monthlyInstalment}
+                          userPhone={dbUser.phone || ""}
+                        />
+                        
+                        {/* Alternative link provided as a minimal secondary text action if they want to pay elsewhere */}
+                        <div className="text-center">
+                          <Link href={`/dashboard/payments?category=loan&amount=${loan.outstandingBalance}&loanId=${loan.id}`}
+                            className="text-[11px] text-stone-400 hover:text-stone-600 hover:underline transition-colors">
+                            Having trouble? Pay via manual transaction route instead →
+                          </Link>
                         </div>
-                        <Link href={`/dashboard/payments?type=loan&loanId=${loan.id}`}
-                          className="text-[10px] font-bold text-[#1C4A2E] hover:underline whitespace-nowrap">
-                          Pay Now →
-                        </Link>
                       </div>
                     )}
                   </div>

@@ -7,6 +7,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { getServerSession }  from "next-auth";
 import { authOptions }       from "@/app/api/auth/[...nextauth]/route";
 import Providers             from "@/components/Providers";
+import Footer                from "@/components/Footer"; // 1. Import the Footer
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -29,9 +30,16 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      {/* Added flex classes to push the footer to the bottom */}
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col`}>
         <Providers session={session}>
-          {children}
+          {/* 2. Wrap children in main to take up available space */}
+          <main className="flex-grow">
+            {children}
+          </main>
+          
+          {/* 3. Place the Footer right below the main content */}
+          <Footer />
         </Providers>
       </body>
     </html>

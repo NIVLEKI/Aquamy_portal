@@ -28,12 +28,15 @@ export default async function PortalLayout({
   // Read from DB so the badge is always accurate on every page load.
   // Kept lightweight: single COUNT query, no joins.
   let unreadCount = 0;
+  let profilePhotoUrl = null; // <-- ADDED: Variable to hold the photo
+
   if (user.email) {
     const dbUser = await prisma.user.findUnique({
       where:  { email: user.email },
-      select: { id: true },
+      select: { id: true, profilePhotoUrl: true }, // <-- ADDED: Fetch profilePhotoUrl
     });
     if (dbUser) {
+      profilePhotoUrl = dbUser.profilePhotoUrl; // <-- ADDED: Assign it from the DB
       unreadCount = await prisma.notification.count({
         where: { userId: dbUser.id, readAt: null },
       });
@@ -49,6 +52,7 @@ export default async function PortalLayout({
         name={displayName}
         memberNumber={user.memberNumber ?? ""}
         unreadCount={unreadCount}
+        profilePhotoUrl={profilePhotoUrl} // <-- ADDED: Pass it down to Sidebar
       />
       <div className="flex-1 overflow-auto min-w-0">
         {children}
@@ -56,7 +60,3 @@ export default async function PortalLayout({
     </div>
   );
 }
-
-
-
-

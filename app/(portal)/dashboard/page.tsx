@@ -13,6 +13,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import prisma from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image"; // <-- ADDED: Next.js Image Component
 import {
   ContributionType,
   FineStatus,
@@ -187,9 +188,24 @@ export default async function DashboardPage() {
             <p className="text-xs font-bold text-stone-800 leading-none">{fullName}</p>
             <p className="text-[10px] font-mono text-stone-400 mt-0.5">{dbUser.memberNumber}</p>
           </div>
-          <div className="w-9 h-9 rounded-full bg-[#1C4A2E] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {initials}
-          </div>
+          
+          {/* <-- UPDATED: Profile Photo conditional rendering --> */}
+          {dbUser.profilePhotoUrl ? (
+            <div className="relative w-9 h-9 rounded-full overflow-hidden flex-shrink-0 border border-stone-200">
+              <Image 
+                src={dbUser.profilePhotoUrl} 
+                alt={`${fullName}'s profile`} 
+                fill 
+                className="object-cover"
+                sizes="36px"
+              />
+            </div>
+          ) : (
+            <div className="w-9 h-9 rounded-full bg-[#1C4A2E] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+              {initials}
+            </div>
+          )}
+
         </div>
       </div>
 
@@ -220,7 +236,7 @@ export default async function DashboardPage() {
             <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-3">Group Overview</p>
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
               <StatCard label="Group Treasury"         value={kes(groupData.groupBalance)}             sub="Running balance"         icon={<PieChart size={18}/>}  accent="green" large />
-              <StatCard label="Active Members"         value={String(groupData.totalMembers)}           sub="Verified members"        icon={<Users size={18}/>}     accent="blue" />
+              <StatCard label="Active Members"         value={String(groupData.totalMembers)}          sub="Verified members"        icon={<Users size={18}/>}     accent="blue" />
               <StatCard label="Loan Book"              value={kes(groupData.totalLoansOutstanding)}     sub={`${groupData.activeLoans} active loans`} icon={<Landmark size={18}/>} accent="amber" />
               <StatCard label="Pending Loan Approvals" value={String(groupData.pendingApprovals)}       sub="Awaiting committee"      icon={<Clock size={18}/>}     accent={groupData.pendingApprovals > 0 ? "red" : "neutral"} href="/admin/loans" />
               <StatCard label="Pending Members"        value={String(groupData.pendingMemberCount)}     sub="Awaiting onboarding"     icon={<Users size={18}/>}     accent={groupData.pendingMemberCount > 0 ? "red" : "neutral"} href="/admin/approvals" />

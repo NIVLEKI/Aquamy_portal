@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "set NODE_OPTIONS=--max-http-header-size=32768 && next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "set NODE_OPTIONS=--max-http-header-size=32768 && next start",
     "lint": "eslint"
+      
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

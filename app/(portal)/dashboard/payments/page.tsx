@@ -1,25 +1,45 @@
-// app/(portal)/dashboard/payments/page.tsx
 "use client";
-import { useState } from "react";
-import { initiateSTKPush } from "@/app/actions/mpesa-actions";
-import { Smartphone, CheckCircle2, Loader2, AlertTriangle, Coins, Landmark, AlertOctagon } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { initiateSTKPush, checkPaymentStatus, getRecentTransactions } from "@/app/actions/mpesa-actions";
+import { Smartphone, CheckCircle2, Loader2, AlertTriangle, Coins, Landmark, AlertOctagon, Clock, XCircle, ArrowRightLeft } from "lucide-react";
 
 type PaymentCategory = "monthly" | "loan" | "fines" | "shares";
 
 export default function PaymentsPage() {
+  const router = useRouter();
   const [category, setCategory]   = useState<PaymentCategory>("monthly");
   const [phone, setPhone]         = useState("");
   const [amount, setAmount]       = useState("500");
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult]       = useState<"success"|"error"|null>(null);
+  const [isPolling, setIsPolling] = useState(false);
+  const [result, setResult]       = useState<"success"|"error"|"verified"|null>(null);
   const [message, setMessage]     = useState("");
+  
+  // New state for transaction history
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [loadingTxs, setLoadingTxs] = useState(true);
 
   const categories: { id: PaymentCategory; label: string; icon: React.ReactNode; description: string; defaultAmount: string }[] = [
     { id: "monthly", label: "Monthly Contribution", icon: <Coins size={18}/>,        description: "KES 500 — current month",          defaultAmount: "500"  },
-    { id: "loan",    label: "Loan Repayment",        icon: <Landmark size={18}/>,      description: "Pay your active loan instalment",  defaultAmount: "0"    },
+    { id: "loan",    label: "Loan Repayment",       icon: <Landmark size={18}/>,      description: "Pay your active loan instalment",  defaultAmount: "0"    },
     { id: "fines",   label: "Pay Fines",             icon: <AlertOctagon size={18}/>,  description: "Clear outstanding meeting fines",  defaultAmount: "0"    },
     { id: "shares",  label: "Buy Shares",            icon: <Coins size={18}/>,         description: "Purchase group shares",            defaultAmount: "100"  },
   ];
+
+  // Load transactions on mount
+  useEffect(() => {
+    loadTransactions();
+  }, []);
+
+  async function loadTransactions() {
+    setLoadingTxs(true);
+    const res = await getRecentTransactions();
+    if (res.success && res.data) {
+      setTransactions(res.data);
+    }
+    setLoadingTxs(false);
+  }
 
   function handleCategoryChange(cat: PaymentCategory) {
     setCategory(cat);
@@ -37,9 +57,12 @@ export default function PaymentsPage() {
 
     try {
       const res = await initiateSTKPush(formData);
-      if (res.success) {
+      if (res.success && res.checkoutRequestId) {
         setResult("success");
-        setMessage("STK Push sent! Check your phone and enter your M-Pesa PIN to complete the payment.");
+        setMessage("STK Push sent! Please enter your M-Pesa PIN on your phone. Waiting for confirmation...");
+        // Re-fetch transactions immediately to show the "INITIATED" state
+        loadTransactions();
+        startPolling(res.checkoutRequestId);
       } else {
         setResult("error");
         setMessage(res.error ?? "Payment initiation failed. Please try again.");
@@ -47,24 +70,77 @@ export default function PaymentsPage() {
     } catch (err: unknown) {
       setResult("error");
       setMessage(err instanceof Error ? err.message : "An unexpected error occurred.");
-    } finally { setSubmitting(false); }
+    } finally { 
+      setSubmitting(false); 
+    }
   }
 
+  function startPolling(checkoutRequestId: string) {
+    setIsPolling(true);
+    let attempts = 0;
+    
+    const interval = setInterval(async () => {
+      attempts++;
+      
+      if (attempts > 20) {
+        clearInterval(interval);
+        setIsPolling(false);
+        setResult("error");
+        setMessage("Verification timed out. If money was deducted, your balance will update shortly.");
+        loadTransactions(); // Fetch final state
+        return;
+      }
+
+      const statusRes = await checkPaymentStatus(checkoutRequestId);
+      
+      if (statusRes.status === "SUCCESS") {
+        clearInterval(interval);
+        setIsPolling(false);
+        setResult("verified");
+        setMessage("Payment received successfully! Your balances have been updated.");
+        loadTransactions(); // Refresh the list to show SUCCESS
+        router.refresh(); 
+      } else if (statusRes.status === "FAILED" || statusRes.status === "CANCELLED") {
+        clearInterval(interval);
+        setIsPolling(false);
+        setResult("error");
+        setMessage("Payment was cancelled or failed. Please try again.");
+        loadTransactions(); // Refresh the list to show FAILED
+      }
+    }, 3000); 
+  }
+
+  // Helper component for status badges
+  const StatusBadge = ({ status }: { status: string }) => {
+    switch (status) {
+      case "SUCCESS":
+        return <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-2 py-1 rounded-md"><CheckCircle2 size={12}/> Success</span>;
+      case "FAILED":
+      case "CANCELLED":
+        return <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-red-700 bg-red-100 px-2 py-1 rounded-md"><XCircle size={12}/> Failed</span>;
+      default:
+        return <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-2 py-1 rounded-md"><Clock size={12}/> Pending</span>;
+    }
+  };
+
   return (
-    <div className="p-6 lg:p-10 max-w-xl mx-auto space-y-6">
+    <div className="p-6 lg:p-10 max-w-xl mx-auto space-y-8">
+      {/* HEADER */}
       <div>
         <h1 className="text-2xl font-black text-stone-900 tracking-tight">Make a Payment</h1>
         <p className="text-stone-500 text-sm mt-1">Pay securely via M-Pesa STK Push.</p>
       </div>
 
-      {/* Category selector */}
+      {/* CATEGORY SELECTOR */}
       <div className="grid grid-cols-2 gap-3">
         {categories.map(cat => (
           <button key={cat.id} type="button" onClick={() => handleCategoryChange(cat.id)}
+            disabled={isPolling}
             className={`flex flex-col items-start gap-2 p-4 rounded-xl border text-left transition-all
               ${category === cat.id
                 ? "bg-[#1C4A2E] text-white border-[#1C4A2E] shadow-md"
-                : "bg-white text-stone-600 border-stone-200 hover:border-stone-300 hover:shadow-sm"}`}>
+                : "bg-white text-stone-600 border-stone-200 hover:border-stone-300 hover:shadow-sm"}
+              ${isPolling ? "opacity-50 cursor-not-allowed" : ""}`}>
             <div className={category === cat.id ? "text-white" : "text-stone-400"}>{cat.icon}</div>
             <div>
               <p className={`text-xs font-bold ${category === cat.id ? "text-white" : "text-stone-800"}`}>{cat.label}</p>
@@ -74,16 +150,27 @@ export default function PaymentsPage() {
         ))}
       </div>
 
-      {/* Result banners */}
+      {/* RESULT BANNERS */}
       {result === "success" && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <Loader2 size={20} className="text-amber-600 flex-shrink-0 mt-0.5 animate-spin"/>
+          <div>
+            <p className="text-sm font-bold text-amber-800">Awaiting Payment...</p>
+            <p className="text-xs text-amber-700 mt-0.5">{message}</p>
+          </div>
+        </div>
+      )}
+      
+      {result === "verified" && (
         <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
           <CheckCircle2 size={20} className="text-emerald-600 flex-shrink-0 mt-0.5"/>
           <div>
-            <p className="text-sm font-bold text-emerald-800">Payment Initiated!</p>
+            <p className="text-sm font-bold text-emerald-800">Payment Successful!</p>
             <p className="text-xs text-emerald-700 mt-0.5">{message}</p>
           </div>
         </div>
       )}
+
       {result === "error" && (
         <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
           <AlertTriangle size={20} className="text-red-500 flex-shrink-0 mt-0.5"/>
@@ -91,7 +178,7 @@ export default function PaymentsPage() {
         </div>
       )}
 
-      {/* Payment form */}
+      {/* PAYMENT FORM */}
       <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-stone-100 bg-stone-50/60 flex items-center gap-2">
           <Smartphone size={15} className="text-stone-400"/>
@@ -103,10 +190,10 @@ export default function PaymentsPage() {
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm">+254</span>
               <input type="tel" name="phone" required value={phone} onChange={e => setPhone(e.target.value)}
-                placeholder="7XX XXX XXX" pattern="[0-9]{9}"
-                className="w-full pl-14 pr-3 py-3 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1C4A2E]/20 focus:border-[#1C4A2E]"/>
+                placeholder="7XX XXX XXX" pattern="[0-9]{9}" disabled={isPolling}
+                className="w-full pl-14 pr-3 py-3 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1C4A2E]/20 focus:border-[#1C4A2E] disabled:opacity-50"/>
             </div>
-            <p className="text-[10px] text-stone-400">Enter the number without the country code or leading zero.</p>
+            <p className="text-[10px] text-stone-400">Enter without the country code or leading zero.</p>
           </div>
 
           <div className="space-y-1.5">
@@ -114,24 +201,67 @@ export default function PaymentsPage() {
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500 text-sm font-semibold">KES</span>
               <input type="number" name="amount" required min="1" value={amount} onChange={e => setAmount(e.target.value)}
-                className="w-full pl-12 pr-3 py-3 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1C4A2E]/20 focus:border-[#1C4A2E]"/>
+                disabled={isPolling}
+                className="w-full pl-12 pr-3 py-3 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1C4A2E]/20 focus:border-[#1C4A2E] disabled:opacity-50"/>
             </div>
           </div>
 
-          <button type="submit" disabled={submitting || result === "success"}
-            className="w-full flex items-center justify-center gap-2 bg-[#1C4A2E] hover:bg-[#153822] disabled:bg-stone-300 text-white font-bold py-3.5 rounded-lg transition-colors text-sm">
-            {submitting
-              ? <><Loader2 size={16} className="animate-spin"/>Sending STK Push...</>
+          <button type="submit" disabled={submitting || isPolling || result === "verified"}
+            className="w-full flex items-center justify-center gap-2 bg-[#1C4A2E] hover:bg-[#153822] disabled:bg-stone-300 disabled:text-stone-500 text-white font-bold py-3.5 rounded-lg transition-colors text-sm">
+            {submitting || isPolling
+              ? <><Loader2 size={16} className="animate-spin"/>{isPolling ? "Waiting for M-Pesa..." : "Sending STK Push..."}</>
               : <><Smartphone size={16}/>Pay KES {parseFloat(amount||"0").toLocaleString()} via M-Pesa</>}
           </button>
-
-          <div className="flex items-center gap-2 justify-center text-[10px] text-stone-400">
-            <span className="w-6 h-px bg-stone-200"/>
-            <span>Secured by Safaricom Daraja API</span>
-            <span className="w-6 h-px bg-stone-200"/>
-          </div>
         </div>
       </form>
+
+      {/* RECENT TRANSACTIONS LEDGER */}
+      <div className="pt-4 space-y-4">
+        <div className="flex items-center gap-2">
+          <ArrowRightLeft size={18} className="text-stone-400"/>
+          <h2 className="text-lg font-bold text-stone-800 tracking-tight">Recent Transactions</h2>
+        </div>
+        
+        <div className="bg-white rounded-xl border border-stone-200 overflow-hidden shadow-sm">
+          {loadingTxs ? (
+            <div className="p-8 text-center text-stone-400 flex flex-col items-center justify-center gap-2">
+              <Loader2 size={24} className="animate-spin text-stone-300"/>
+              <p className="text-sm">Loading ledger...</p>
+            </div>
+          ) : transactions.length === 0 ? (
+            <div className="p-8 text-center text-stone-500 text-sm">
+              No recent transactions found.
+            </div>
+          ) : (
+            <ul className="divide-y divide-stone-100">
+              {transactions.map((tx) => (
+                <li key={tx.id} className="p-4 hover:bg-stone-50 transition-colors flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold text-stone-800">
+                      KES {tx.amount.toLocaleString()}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-[11px] text-stone-500">
+                        {new Date(tx.createdAt).toLocaleDateString("en-KE", { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      {tx.receiptNumber && (
+                        <>
+                          <span className="w-1 h-1 rounded-full bg-stone-300"></span>
+                          <p className="text-[11px] font-mono text-stone-500">{tx.receiptNumber}</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <StatusBadge status={tx.status} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+      
     </div>
   );
 }
