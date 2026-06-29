@@ -1,4 +1,7 @@
-// app/actions/member-actions.ts
+// app/actions/member-actions.ts — v2
+// Fixed: removed exitedAt (not in schema).
+// To add it later: add `exitedAt DateTime?` to the User model
+// in schema.prisma, then run prisma migrate dev.
 "use server";
 
 import prisma from "@/lib/prisma";
@@ -16,16 +19,15 @@ type StatusAction = "SUSPEND" | "EXPEL" | "REACTIVATE";
 // =============================================================================
 
 export async function changeMemberStatus(
-  userId:    string,
-  action:    StatusAction,
-  reason:    string
+  userId: string,
+  action: StatusAction,
+  reason: string
 ) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error("Not authenticated.");
 
   const actorRole = (session.user as { role?: string }).role ?? "MEMBER";
 
-  // Only Chairperson and Admin can suspend or expel
   if (!["ADMIN", "CHAIRPERSON"].includes(actorRole))
     throw new Error("Only the Chairperson or Admin can change member status.");
 
@@ -39,11 +41,9 @@ export async function changeMemberStatus(
 
   if (!target) throw new Error("Member not found.");
 
-  // Prevent acting on another Admin
   if (target.role === "ADMIN")
     throw new Error("Admin accounts cannot be suspended or expelled through this panel.");
 
-  // Validate state transitions
   if (action === "SUSPEND" && target.status === MemberStatus.SUSPENDED)
     throw new Error("Member is already suspended.");
   if (action === "EXPEL" && target.status === MemberStatus.EXPELLED)
@@ -62,16 +62,15 @@ export async function changeMemberStatus(
   });
 
   await prisma.$transaction([
+    // ── Removed exitedAt — field not in schema ───────────────────────────
     prisma.user.update({
       where: { id: userId },
       data:  {
         status:   newStatus,
         isActive: newStatus === MemberStatus.ACTIVE,
-        exitedAt: action === "EXPEL" ? new Date() : null,
       },
     }),
 
-    // Notify the member
     prisma.notification.create({
       data: {
         userId,
@@ -84,7 +83,6 @@ export async function changeMemberStatus(
       },
     }),
 
-    // Immutable audit entry
     prisma.auditLog.create({
       data: {
         actorId:    actor?.id ?? "SYSTEM",

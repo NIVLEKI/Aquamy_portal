@@ -1,4 +1,5 @@
-// app/actions/loan-actions.ts
+// app/actions/loan-actions.ts — v2
+// Added: active loan restriction in applyForLoan
 "use server";
 
 import prisma from "@/lib/prisma";
@@ -7,9 +8,17 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { revalidatePath } from "next/cache";
 import { LoanStatus } from "@prisma/client";
 
+// Statuses that block a new application
+const BLOCKING_STATUSES = [
+  LoanStatus.SUBMITTED,
+  LoanStatus.UNDER_REVIEW,
+  LoanStatus.APPROVED,
+  LoanStatus.DISBURSED,
+  LoanStatus.REPAYING,
+];
+
 // =============================================================================
 // APPLY FOR LOAN
-// Called from dashboard/loans/apply
 // =============================================================================
 
 export async function applyForLoan(formData: FormData) {
@@ -17,23 +26,52 @@ export async function applyForLoan(formData: FormData) {
   if (!session?.user?.email) throw new Error("Not authenticated.");
 
   const dbUser = await prisma.user.findUnique({
-    where:   { email: session.user.email },
-    select:  { id: true, createdAt: true },
+    where:  { email: session.user.email },
+    select: { id: true, createdAt: true },
   });
   if (!dbUser) throw new Error("User not found.");
 
-  const principal  = parseFloat(formData.get("amount")      as string);
-  const termMonths = parseInt(formData.get("termMonths")    as string);
-  const purpose    = (formData.get("purpose")               as string)?.trim();
-  const guarantorIds = formData.getAll("guarantorId")        as string[];
+  // ── Active loan restriction ─────────────────────────────────────────────
+  // Constitution: a member must clear existing obligations before borrowing again.
+  const existingActiveLoan = await prisma.loan.findFirst({
+    where: {
+      userId: dbUser.id,
+      status: { in: BLOCKING_STATUSES },
+    },
+    select: { id: true, status: true, outstandingBalance: true },
+  });
 
-  if (!principal || isNaN(principal) || principal <= 0) throw new Error("Invalid loan amount.");
-  if (!termMonths || isNaN(termMonths))                  throw new Error("Invalid term.");
-  if (!purpose)                                          throw new Error("Loan purpose is required.");
+  if (existingActiveLoan) {
+    const statusLabel: Record<string, string> = {
+      SUBMITTED:    "awaiting guarantor responses",
+      UNDER_REVIEW: "under Credit Committee review",
+      APPROVED:     "approved and awaiting disbursement",
+      DISBURSED:    "disbursed",
+      REPAYING:     "currently being repaid",
+    };
+    const label = statusLabel[existingActiveLoan.status] ?? existingActiveLoan.status;
+    throw new Error(
+      `You already have an active loan (${label}). ` +
+      `Please clear your outstanding balance of KES ${existingActiveLoan.outstandingBalance.toLocaleString("en-KE")} ` +
+      `before applying for a new one.`
+    );
+  }
 
-  // Get active loan policy
+  const principal  = parseFloat(formData.get("amount")     as string);
+  const termMonths = parseInt(formData.get("termMonths")   as string);
+  const purpose    = (formData.get("purpose")              as string)?.trim();
+  const guarantorIds = formData.getAll("guarantorId")       as string[];
+
+  if (!principal || isNaN(principal) || principal <= 0)
+    throw new Error("Invalid loan amount.");
+  if (!termMonths || isNaN(termMonths))
+    throw new Error("Invalid term.");
+  if (!purpose)
+    throw new Error("Loan purpose is required per the AQUAMY constitution.");
+
+  // Active policy
   const policy = await prisma.loanPolicy.findFirst({ where: { active: true } });
-  if (!policy) throw new Error("No active loan policy. Please contact the Treasurer.");
+  if (!policy) throw new Error("No active loan policy. Contact the Treasurer.");
 
   if (principal < policy.minimumLoanAmount)
     throw new Error(`Minimum loan amount is KES ${policy.minimumLoanAmount.toLocaleString()}.`);
@@ -42,45 +80,46 @@ export async function applyForLoan(formData: FormData) {
   if (termMonths > policy.maxDuration)
     throw new Error(`Maximum loan term is ${policy.maxDuration} months.`);
 
-  // Check minimum membership duration
+  // Membership duration check
   const monthsAsMember = Math.floor(
     (Date.now() - new Date(dbUser.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 30)
   );
-  //if (monthsAsMember < policy.minimumMonthsAsMember)
-    //throw new Error(`You must be a member for at least ${policy.minimumMonthsAsMember} months to apply.`);
+  if (monthsAsMember < policy.minimumMonthsAsMember)
+    throw new Error(
+      `You must be a member for at least ${policy.minimumMonthsAsMember} months to apply. ` +
+      `You have been a member for ${monthsAsMember} month(s).`
+    );
 
-  // Validate guarantors
+  // Guarantor validation
   const uniqueGuarantors = [...new Set(guarantorIds.filter(Boolean))];
   if (uniqueGuarantors.includes(dbUser.id))
     throw new Error("You cannot guarantee your own loan.");
   if (uniqueGuarantors.length < policy.requiredGuarantors)
     throw new Error(`You must select ${policy.requiredGuarantors} different guarantors.`);
 
-  // Calculate repayment
-  const interestAmount  = policy.interestMethod === "FLAT"
-    ? principal * (policy.interestRate / 100) * (termMonths / 12)
-    : principal * (policy.interestRate / 100) * (termMonths / 12); // simplified
-  const totalRepayable   = principal + interestAmount;
+  // Repayment calculation
+  const interestAmount    = principal * (policy.interestRate / 100) * (termMonths / 12);
+  const totalRepayable    = principal + interestAmount;
   const monthlyInstalment = totalRepayable / termMonths;
 
-  // Create loan + guarantors in a transaction
+  // Create loan + guarantors + repayment schedule atomically
   await prisma.$transaction(async (tx) => {
     const loan = await tx.loan.create({
       data: {
-        userId:            dbUser.id,
-        loanPolicyId:      policy.id,
+        userId:             dbUser.id,
+        loanPolicyId:       policy.id,
         principal,
-        interestRate:      policy.interestRate,
+        interestRate:       policy.interestRate,
         termMonths,
         totalRepayable,
         outstandingBalance: totalRepayable,
         monthlyInstalment,
         purpose,
-        status:            LoanStatus.SUBMITTED,
+        status:             LoanStatus.SUBMITTED,
       },
     });
 
-    // Create guarantor records
+    // Guarantor records
     await tx.loanGuarantor.createMany({
       data: uniqueGuarantors.map(userId => ({
         loanId: loan.id,
@@ -89,20 +128,20 @@ export async function applyForLoan(formData: FormData) {
       })),
     });
 
-    // Generate repayment schedule
-    const schedule = [];
-    for (let i = 1; i <= termMonths; i++) {
+    // Repayment schedule
+    const schedule = Array.from({ length: termMonths }, (_, i) => {
       const dueDate = new Date();
-      dueDate.setMonth(dueDate.getMonth() + i);
-      dueDate.setDate(1); // first of each month
-      schedule.push({
-        loanId:          loan.id,
-        instalmentNumber: i,
+      dueDate.setMonth(dueDate.getMonth() + i + 1);
+      dueDate.setDate(1);
+      return {
+        loanId:           loan.id,
+        instalmentNumber: i + 1,
         dueDate,
-        expectedAmount:  monthlyInstalment,
-        status:          "PENDING" as const,
-      });
-    }
+        expectedAmount:   monthlyInstalment,
+        status:           "PENDING" as const,
+      };
+    });
+
     await tx.loanRepayment.createMany({ data: schedule });
   });
 
@@ -116,14 +155,14 @@ export async function applyForLoan(formData: FormData) {
 
 export async function getActiveMembers() {
   return prisma.user.findMany({
-    where: { OR: [{ status: "ACTIVE" }, { isActive: true }], NOT: { status: "PENDING" } },
-    select: { id: true, name: true, firstName: true, lastName: true, memberNumber: true },
+    where:   { OR: [{ status: "ACTIVE" }, { isActive: true }], NOT: { status: "PENDING" } },
+    select:  { id: true, name: true, firstName: true, lastName: true, memberNumber: true },
     orderBy: { name: "asc" },
   });
 }
 
 // =============================================================================
-// APPROVE LOAN  (Credit Committee / Admin)
+// APPROVE LOAN
 // =============================================================================
 
 export async function approveLoan(loanId: string) {
@@ -144,15 +183,12 @@ export async function approveLoan(loanId: string) {
 }
 
 // =============================================================================
-// REJECT LOAN  (Credit Committee / Admin)
+// REJECT LOAN
 // =============================================================================
 
 export async function rejectLoan(loanId: string, reason: string) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error("Not authenticated.");
-
-  const loan = await prisma.loan.findUnique({ where: { id: loanId } });
-  if (!loan) throw new Error("Loan not found.");
 
   await prisma.loan.update({
     where: { id: loanId },
@@ -166,7 +202,7 @@ export async function rejectLoan(loanId: string, reason: string) {
 }
 
 // =============================================================================
-// DISBURSE LOAN  (Treasurer / Admin only)
+// DISBURSE LOAN
 // =============================================================================
 
 export async function disburseLoan(loanId: string) {
@@ -183,8 +219,6 @@ export async function disburseLoan(loanId: string) {
       where: { id: loanId },
       data:  { status: LoanStatus.DISBURSED, disbursedAt: new Date() },
     }),
-
-    // Update member summary
     prisma.memberFinancialSummary.upsert({
       where:  { userId: loan.userId },
       create: { userId: loan.userId, outstandingLoanBalance: loan.totalRepayable },
@@ -195,6 +229,3 @@ export async function disburseLoan(loanId: string) {
   revalidatePath("/admin/loans");
   revalidatePath("/dashboard/loans");
 }
-
-
-//now we have to rectify some gaps, there is no approval page / button for fully guaranteed loan, then the admin should be able to terminate /suspend as in the constitution- users assuming procedure was followed by the commitee, also he will have the responsibility to update the joining dates(in the existing data entry hub not another page please) of each user since some registered before the site existed(make admin able to write over the auto dates) also he should bbe able to schedule meeting directly from the data entry page and notifications appaer as i have explained below . Then later we can deal with the settings page for users (profile updates ,pictures) Finally we can include a page dedicated for anoouncements/notifications from the admin

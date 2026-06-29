@@ -302,10 +302,12 @@ export async function initiateContributionPayment(
 // then fires the STK Push. Shares are credited in the callback on success.
 // =============================================================================
 
+
+
 export async function initiateSharePurchase(
   units:    number,
   rawPhone: string
-): Promise<{ success: boolean; message: string }> {
+): Promise<{ success: boolean; message: string; checkoutRequestId?: string }> {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return { success: false, message: "Not authenticated." };
 
@@ -374,7 +376,7 @@ export async function initiateSharePurchase(
       update: {},
     });
 
-    // Create the MpesaTransaction
+    // Create the MpesaTransaction using the REAL checkout ID from Daraja
     const mpesaTx = await prisma.mpesaTransaction.create({
       data: {
         checkoutRequestId: CheckoutRequestID,
@@ -386,8 +388,7 @@ export async function initiateSharePurchase(
       },
     });
 
-    // Create pending ShareTransaction linked to this Mpesa record.
-    // The callback will confirm and update Share.quantity + totalValue.
+    // Pending ShareTransaction — callback confirms and credits on success
     await prisma.shareTransaction.create({
       data: {
         userId:             dbUser.id,
@@ -396,7 +397,7 @@ export async function initiateSharePurchase(
         units,
         pricePerUnit,
         totalAmount,
-        notes:              `Pending — awaiting M-Pesa confirmation`,
+        notes:              "Pending — awaiting M-Pesa confirmation",
         recordedBy:         dbUser.id,
         mpesaTransactionId: mpesaTx.id,
       },
@@ -404,7 +405,8 @@ export async function initiateSharePurchase(
 
     return {
       success: true,
-      message: `STK Push sent for KES ${totalAmount.toLocaleString()}. Enter your PIN to confirm purchase of ${units} share${units > 1 ? "s" : ""}.`,
+      message: `STK Push sent for KES ${totalAmount.toLocaleString()}. Enter your PIN to confirm.`,
+      checkoutRequestId: CheckoutRequestID,
     };
 
   } catch (err) {
