@@ -68,7 +68,7 @@ export default async function LoansPage() {
       where: {
         userId:       dbUser.id,
         hasConsented: false,
-        declined:     false,
+        //declined:     false,
         loan: {
           status: { in: [LoanStatus.SUBMITTED, LoanStatus.UNDER_REVIEW] },
         },
