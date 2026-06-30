@@ -279,7 +279,7 @@ export default async function LoansPage() {
                 )}
 
                 {/* Repayment progress section */}
-                {[LoanStatus.REPAYING, LoanStatus.DISBURSED, LoanStatus.FULLY_REPAID].includes(loan.status) && (
+                {([LoanStatus.REPAYING, LoanStatus.DISBURSED, LoanStatus.FULLY_REPAID] as LoanStatus[]).includes(loan.status) && (
                   <div className="px-6 py-5 border-b border-stone-100 bg-stone-50/50 space-y-4">
                     
                     {/* Progress Bar Container */}

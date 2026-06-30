@@ -44,7 +44,7 @@ export default async function AdminLoansPage() {
           memberNumber: true, phone: true,
         },
       },
-      loanPolicy: true,
+      //loanPolicy: true,
       guarantors: {
         include: {
           user: { select: { name: true, firstName: true, memberNumber: true } },
@@ -139,7 +139,7 @@ export default async function AdminLoansPage() {
 
         {/* Details */}
         <div className="px-6 py-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs border-b border-stone-100">
-          <div><p className="text-stone-400 font-medium">Interest</p>      <p className="font-bold text-stone-800 mt-0.5">{loan.interestRate}% ({loan.loanPolicy?.interestMethod ?? "FLAT"})</p></div>
+          <div><p className="text-stone-400 font-medium">Interest</p>      <p className="font-bold text-stone-800 mt-0.5">{loan.interestRate}% p.a.</p></div>
           <div><p className="text-stone-400 font-medium">Term</p>          <p className="font-bold text-stone-800 mt-0.5">{loan.termMonths} months</p></div>
           <div><p className="text-stone-400 font-medium">Monthly</p>       <p className="font-bold text-stone-800 mt-0.5">{kes(loan.monthlyInstalment)}</p></div>
           <div><p className="text-stone-400 font-medium">Purpose</p>       <p className="font-semibold text-stone-700 mt-0.5 truncate">{loan.purpose || "Not stated"}</p></div>
