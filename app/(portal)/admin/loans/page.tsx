@@ -44,6 +44,7 @@ export default async function AdminLoansPage() {
           memberNumber: true, phone: true,
         },
       },
+      loanPolicy: true,
       guarantors: {
         include: {
           user: { select: { name: true, firstName: true, memberNumber: true } },
