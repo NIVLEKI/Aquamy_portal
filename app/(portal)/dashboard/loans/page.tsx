@@ -279,6 +279,7 @@ export default async function LoansPage() {
                 )}
 
                 {/* Repayment progress section */}
+                {/* Repayment progress section */}
                 {([LoanStatus.REPAYING, LoanStatus.DISBURSED, LoanStatus.FULLY_REPAID] as LoanStatus[]).includes(loan.status) && (
                   <div className="px-6 py-5 border-b border-stone-100 bg-stone-50/50 space-y-4">
                     
@@ -311,7 +312,7 @@ export default async function LoansPage() {
                     )}
 
                     {/* FIX 2: Inline Payment Widget implementation and cleanup of broken layout tags */}
-                    {[LoanStatus.DISBURSED, LoanStatus.REPAYING].includes(loan.status) && loan.outstandingBalance > 0 && (
+                    {([LoanStatus.DISBURSED, LoanStatus.REPAYING] as LoanStatus[]).includes(loan.status) && loan.outstandingBalance > 0 && (
                       <div className="space-y-3">
                         <LoanPaymentWidget 
                           loanId={loan.id} 

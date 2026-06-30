@@ -42,8 +42,7 @@ function deriveStatus(paid: number, expected: number): string {
 
 export async function recordContribution(formData: FormData) {
   const session = await getServerSession(authOptions);
-  const recordedBy = session?.user?.id ?? "SYSTEM";
-
+  const recordedBy = (session?.user as { id?: string })?.id ?? "SYSTEM";
   // ── Parse form fields ──────────────────────────────────────────────────────
   const userId      = formData.get("userId")      as string;
   const typeRaw     = formData.get("type")         as string;

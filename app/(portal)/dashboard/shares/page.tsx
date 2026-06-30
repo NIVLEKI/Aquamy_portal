@@ -23,7 +23,7 @@ export default async function SharesPage() {
   const dbUser = await prisma.user.findUnique({
     where:   { email: session.user.email },
     select:  { id: true },
-    include: undefined,
+    //include: undefined,
   });
   if (!dbUser) redirect("/login");
 
