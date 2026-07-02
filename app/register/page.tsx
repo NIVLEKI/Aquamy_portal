@@ -1,10 +1,7 @@
-// app/register/page.tsx — v3
-// Adds: National ID field (manual, validated), terms & conditions checkbox
-// with readable modal, removes auto-assigned member number input.
+// app/register/page.tsx
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { registerMember } from "@/app/actions/auth-actions";
 import TermsModal from "@/components/TermsModal";
 import Link from "next/link";
@@ -14,7 +11,6 @@ const inputCls = "w-full p-3 bg-stone-50 border border-stone-200 rounded-lg text
 const labelCls = "text-[10px] font-bold text-stone-400 uppercase tracking-wider";
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [submitting,    setSubmitting]    = useState(false);
   const [error,         setError]         = useState<string | null>(null);
   const [success,       setSuccess]       = useState(false);
@@ -27,20 +23,21 @@ export default function RegisterPage() {
       setError("Please accept the Terms and Conditions to continue.");
       return;
     }
-
-    setSubmitting(true); setError(null);
-
+    setSubmitting(true);
+    setError(null);
     const fd = new FormData(e.currentTarget);
     fd.set("acceptedTerms", "true");
-
     try {
       await registerMember(fd);
       setSuccess(true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
-    } finally { setSubmitting(false); }
+    } finally {
+      setSubmitting(false);
+    }
   }
 
+  // ── Success screen ─────────────────────────────────────────────────────────
   if (success) {
     return (
       <div className="min-h-screen bg-[#F7F5F0] flex items-center justify-center p-4">
@@ -56,10 +53,13 @@ export default function RegisterPage() {
               <p>Your application has been submitted and is now in the waiting room.</p>
               <p>We have sent <strong>two emails</strong> to your address:</p>
               <ul className="text-left space-y-1 bg-stone-50 rounded-xl p-4 text-xs">
-                <li>✉️ <strong>Email verification</strong> — please click the link to verify your address</li>
+                <li>✉️ <strong>Email verification</strong> — click the link to verify your address</li>
                 <li>📋 <strong>Registration confirmation</strong> — details about next steps</li>
               </ul>
-              <p className="text-xs text-stone-400">Committee approval is required before you can log in. You will be emailed once a decision is made.</p>
+              <p className="text-xs text-stone-400">
+                Committee approval is required before you can log in.
+                You will be emailed once a decision is made.
+              </p>
             </div>
             <Link href="/login"
               className="inline-flex items-center gap-2 bg-[#1C4A2E] hover:bg-[#153822] text-white text-sm font-bold px-5 py-2.5 rounded-lg mt-2 transition-colors">
@@ -71,9 +71,11 @@ export default function RegisterPage() {
     );
   }
 
+  // ── Registration form ──────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#F7F5F0] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl border border-stone-200 shadow-sm max-w-lg w-full overflow-hidden">
+
         {/* Header */}
         <div className="bg-[#1C4A2E] px-8 py-7">
           <p className="text-white/50 text-[10px] font-bold uppercase tracking-widest">AQUAMY</p>
@@ -85,13 +87,16 @@ export default function RegisterPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="p-8 space-y-5">
+
+          {/* Error banner */}
           {error && (
             <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-xl">
-              <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />{error}
+              <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+              {error}
             </div>
           )}
 
-          {/* Name row */}
+          {/* Name */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <label className={labelCls}>First Name *</label>
@@ -107,7 +112,7 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* National ID — manually entered, no auto-assign */}
+          {/* National ID */}
           <div className="space-y-1.5">
             <label className={labelCls}>National ID Number *</label>
             <input
@@ -119,21 +124,25 @@ export default function RegisterPage() {
               className={inputCls}
             />
             <p className="text-[10px] text-stone-400">
-              Your Government-issued National ID number (6–8 digits). Used for identity verification only.
+              Government-issued ID number (6–8 digits). Used for identity verification only.
             </p>
           </div>
 
           {/* Date of birth */}
           <div className="space-y-1.5">
             <label className={labelCls}>Date of Birth *</label>
-            <input type="date" name="dob" required
-              max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split("T")[0]}
+            <input
+              type="date" name="dob" required
+              max={new Date(new Date().setFullYear(new Date().getFullYear() - 18))
+                .toISOString().split("T")[0]}
               className={inputCls}
             />
-            <p className="text-[10px] text-stone-400">Members must be between 18 and 35 years old per the AQUAMY constitution.</p>
+            <p className="text-[10px] text-stone-400">
+              Members must be between 18 and 35 years old per the AQUAMY constitution.
+            </p>
           </div>
 
-          {/* Contact */}
+          {/* Email + Phone */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label className={labelCls}>Email Address *</label>
@@ -155,8 +164,11 @@ export default function RegisterPage() {
                 placeholder="Min 8 characters"
                 className={`${inputCls} pr-10`}
               />
-              <button type="button" onClick={() => setShowPw(s => !s)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600">
+              <button
+                type="button"
+                onClick={() => setShowPw(s => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+              >
                 {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </div>
@@ -175,8 +187,10 @@ export default function RegisterPage() {
             </p>
           </div>
 
-          {/* Terms and conditions checkbox */}
-          <div className={`flex items-start gap-3 p-4 rounded-xl border transition-colors ${acceptedTerms ? "bg-emerald-50 border-emerald-200" : "bg-stone-50 border-stone-200"}`}>
+          {/* Terms checkbox */}
+          <div className={`flex items-start gap-3 p-4 rounded-xl border transition-colors ${
+            acceptedTerms ? "bg-emerald-50 border-emerald-200" : "bg-stone-50 border-stone-200"
+          }`}>
             <div className="flex-shrink-0 mt-0.5">
               <button
                 type="button"
@@ -189,7 +203,13 @@ export default function RegisterPage() {
               >
                 {acceptedTerms && (
                   <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                    <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path
+                      d="M1 4L3.5 6.5L9 1"
+                      stroke="white"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
                   </svg>
                 )}
               </button>
@@ -199,10 +219,14 @@ export default function RegisterPage() {
               <TermsModal />
               {" "}of the Agricultural and Aquatic Muirungi Youth Self-Help Group.
             </span>
-          </div>  {/* ← this was missing */}
+          </div>
 
-          <button type="submit" disabled={submitting || !acceptedTerms}
-            className="w-full flex items-center justify-center gap-2 bg-[#1C4A2E] hover:bg-[#153822] disabled:bg-stone-300 text-white font-bold py-3.5 rounded-lg transition-colors text-sm">
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={submitting || !acceptedTerms}
+            className="w-full flex items-center justify-center gap-2 bg-[#1C4A2E] hover:bg-[#153822] disabled:bg-stone-300 text-white font-bold py-3.5 rounded-lg transition-colors text-sm"
+          >
             {submitting
               ? <><Loader2 size={16} className="animate-spin" /> Submitting Application...</>
               : "Submit Application"}
@@ -212,6 +236,7 @@ export default function RegisterPage() {
             By submitting, your application enters a waiting room pending committee approval.
             You cannot log in until approved.
           </p>
+
         </form>
       </div>
     </div>
